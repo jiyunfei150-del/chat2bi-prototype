@@ -1,0 +1,1910 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Chat2BI 动态原型：一句话生成看板、保存回看、异动联动归因、推演、生成周会文档、主题与动态组件。名称取自猎鱼达人3D，数字均为演示虚构。">
+<style>html, body { margin: 0; }</style>
+<title>Chat2BI 动态原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600&family=ZCOOL+KuaiLe&family=Press+Start+2P&display=swap">
+<style>
+/* 布局：上方说明 → 16:9 播放器（固定 1440×810 画面按宽度缩放）→ 字幕 → 控制条 → 章节表 → 存储与回看 */
+:root {
+  --bg: #eef1f5; --panel: #ffffff; --soft: #f1f4f8;
+  --ink: #131820; --ink-2: #4a5463; --ink-3: #7b8596;
+  --line: #d9dfe8; --line-2: #e8ecf2;
+  --accent: #2b5ce6; --accent-soft: #e6edfc; --warn: #9a6700; --warn-soft: #fbf0d9;
+  --f-sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1015; --panel: #161b22; --soft: #1d232c; --ink: #edf1f6; --ink-2: #b3bdca; --ink-3: #8590a1;
+    --line: #2a323e; --line-2: #20262f; --accent: #6b8ff0; --accent-soft: #1a2540; --warn: #e0a21a; --warn-soft: #2f2510; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1015; --panel: #161b22; --soft: #1d232c; --ink: #edf1f6; --ink-2: #b3bdca; --ink-3: #8590a1;
+  --line: #2a323e; --line-2: #20262f; --accent: #6b8ff0; --accent-soft: #1a2540; --warn: #e0a21a; --warn-soft: #2f2510; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-sans); line-height: 1.6; }
+.wrap { max-width: 1160px; margin: 0 auto; padding-block: 28px 56px; padding-inline: 20px; display: flex; flex-direction: column; gap: 22px; }
+.intro { display: flex; flex-direction: column; gap: 6px; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; color: var(--ink-3); }
+.intro h1 { margin: 0; font-size: 28px; font-weight: 700; text-wrap: balance; }
+.intro p { margin: 0; color: var(--ink-2); max-width: 70ch; }
+.fake { align-self: flex-start; margin-top: 4px; font-size: 12px; color: var(--warn); background: var(--warn-soft); padding: 2px 10px; border-radius: 999px; }
+.player { display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.screen { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: #0e1320; }
+.poster { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(10, 14, 24, .55); z-index: 5; }
+.poster button { font: 600 17px var(--f-sans); color: #fff; background: #2b5ce6; border: 0; border-radius: 999px; padding: 12px 26px; cursor: pointer; }
+.poster span { color: #f2f5f9; font-size: 13px; }
+.caption { min-height: 3.6em; padding: 12px 20px; font-size: 15px; border-top: 1px solid var(--line-2); display: flex; align-items: center; justify-content: center; text-align: center; text-wrap: balance; }
+.caption.fade { animation: capin .35s ease both; }
+.controls { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line-2); flex-wrap: wrap; }
+.controls button { font: 500 13px var(--f-sans); color: var(--ink); background: var(--soft); border: 1px solid var(--line); border-radius: 8px; height: 32px; padding: 0 12px; cursor: pointer; }
+.controls button:focus-visible, .chap button:focus-visible, .poster button:focus-visible, .track:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.time { font: 12px var(--f-mono); color: var(--ink-2); font-variant-numeric: tabular-nums; min-width: 92px; }
+.track { position: relative; flex: 1 1 240px; height: 26px; cursor: pointer; display: flex; align-items: center; }
+.rail { position: absolute; left: 0; right: 0; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.fill { height: 100%; width: 0; background: var(--accent); }
+.tick { position: absolute; top: 5px; width: 2px; height: 16px; background: var(--panel); }
+.now { font-size: 12px; color: var(--ink-3); }
+h2.sec { margin: 0 0 10px; font-size: 17px; }
+.chap { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.chap button { width: 100%; height: 100%; text-align: left; font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+.chap button.on { border-color: var(--accent); background: var(--accent-soft); }
+.chap .n { font: 600 13px var(--f-mono); color: var(--accent); grid-row: span 3; padding-top: 1px; }
+.chap .t { font-weight: 700; font-size: 14px; }
+.chap .d { font-size: 13px; color: var(--ink-2); }
+.chap .p { font-size: 12px; color: var(--ink-3); }
+.store { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.store div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.store h3 { margin: 0 0 6px; font-size: 14.5px; }
+.store p { margin: 0; font-size: 13.5px; color: var(--ink-2); }
+
+/* ================= 画面内：按现有问数平台的浅色界面模拟 ================= */
+.stage { position: absolute; left: 0; top: 0; width: 1440px; height: 810px; transform-origin: 0 0; pointer-events: none; user-select: none; font-size: 13px; overflow: hidden;
+  color-scheme: light;
+  --nav: #16236b; --nav-ink: #dfe4f6; --app-bg: #f0f2f5; --panel: #ffffff; --soft: #f5f7fa;
+  --ink: #1f2329; --ink-2: #4e5969; --ink-3: #86909c; --line: #e3e5ea; --line-2: #eef0f3;
+  --accent: #2b5ce6; --accent-soft: #edf1fd; --s1: #2a78d6; --s2: #eb6834; --muted: #c4c9d2; --user-bg: #edf1f8;
+  --good: #1b8a3a; --good-soft: #e3f3e7; --crit: #d23c3b; --crit-soft: #fbe7e6; --warn: #9a6700; --warn-soft: #fbf0d9;
+  --veil: rgba(10, 14, 24, .62); --shadow: 0 10px 30px rgba(20, 30, 50, .18); color: var(--ink); background: var(--app-bg); }
+.cam { position: absolute; left: 0; top: 0; width: 1440px; height: 810px; transform-origin: 0 0; }
+.cam.rewind { filter: grayscale(1) brightness(.9); }
+.hud { position: absolute; inset: 0; z-index: 80; }
+.app { position: absolute; inset: 0; display: grid; grid-template-rows: 52px 40px 1fr; background: var(--app-bg); }
+.topnav { background: var(--nav); color: var(--nav-ink); display: flex; align-items: center; gap: 30px; padding: 0 22px; font-size: 14.5px; }
+.brand { font-weight: 700; font-size: 17px; color: #fff; margin-right: 18px; }
+.topnav .on { color: #fff; font-weight: 700; position: relative; }
+.topnav .on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -16px; height: 3px; background: #fff; border-radius: 2px; }
+.topnav .me { margin-left: auto; display: flex; align-items: center; gap: 8px; color: #fff; font-size: 13.5px; }
+.topnav .av { width: 28px; height: 28px; border-radius: 50%; background: #5b6bb5; display: grid; place-items: center; font-size: 12px; }
+.ptabs { display: flex; align-items: center; padding-left: 210px; font-size: 13.5px; border-bottom: 1px solid var(--line); }
+.ptabs span { padding: 0 20px; height: 40px; display: flex; align-items: center; gap: 6px; border-right: 1px solid var(--line); }
+.ptabs .on { background: var(--panel); color: var(--nav); font-weight: 500; }
+.ptabs .proj { margin-left: auto; margin-right: 18px; font-style: normal; font-size: 12.5px; color: var(--ink-2); border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 3px 10px; }
+.ptabs .proj b { font-weight: 500; color: var(--ink); }
+.ptabs .x { color: var(--ink-3); font-size: 11px; font-style: normal; }
+.mainarea { display: grid; grid-template-columns: 200px 1fr; min-height: 0; }
+.side { background: var(--panel); border-right: 1px solid var(--line); padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; }
+.side .grp { display: flex; align-items: center; gap: 8px; font-weight: 500; padding: 9px 8px; }
+.side .grp em { margin-left: auto; font-style: normal; color: var(--ink-3); font-size: 11px; }
+.side .gi { width: 16px; height: 16px; border-radius: 4px; border: 1.6px solid var(--ink-2); flex: none; }
+.side .it { padding: 8px 8px 8px 32px; color: var(--ink-2); border-radius: 7px; position: relative; display: flex; align-items: center; gap: 6px; }
+.side .it.on { background: var(--accent-soft); color: var(--ink); font-weight: 500; }
+.side .it.on::before { content: ""; position: absolute; left: 4px; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: var(--nav); }
+.side .new { font-size: 10px; color: #fff; background: var(--crit); border-radius: 8px; padding: 0 5px; line-height: 15px; font-style: normal; }
+.side .sep { height: 10px; }
+.content { min-height: 0; padding: 12px; display: grid; grid-template-columns: 380px 1fr; gap: 12px; }
+
+.chat { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-radius: 8px; border: 1px solid var(--line); }
+.chathead { height: 46px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--line-2); }
+.seg { padding: 5px 12px; border-radius: 6px; font-size: 13.5px; color: var(--ink-2); }
+.seg.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.chathead .newc { margin-left: auto; font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; }
+.pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.msgs { flex: 1; min-height: 0; overflow: hidden; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.hello { color: var(--ink-3); font-size: 12.5px; }
+.u { align-self: flex-end; max-width: 82%; background: var(--user-bg); padding: 8px 12px; border-radius: 8px; animation: pop .3s ease backwards; }
+.a { display: grid; grid-template-columns: 26px 1fr; gap: 8px; animation: pop .3s ease backwards; }
+.bot { width: 26px; height: 26px; border-radius: 50%; background: var(--ink); position: relative; }
+.bot::before, .bot::after { content: ""; position: absolute; top: 10px; width: 5px; height: 5px; border-radius: 50%; background: #fff; }
+.bot::before { left: 7px; } .bot::after { right: 7px; }
+.ab { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.ab p { margin: 0; line-height: 1.65; }
+.status { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: var(--ink-2); }
+.ck { width: 15px; height: 15px; border-radius: 50%; background: var(--good); position: relative; flex: none; }
+.ck::after { content: ""; position: absolute; left: 5px; top: 2.5px; width: 3.5px; height: 7px; border: solid #fff; border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); }
+.sp { width: 14px; height: 14px; border-radius: 50%; border: 1.8px solid var(--accent); border-top-color: transparent; animation: spin .7s linear infinite; flex: none; }
+.chev { color: var(--ink-3); font-size: 10px; }
+.steps { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink-3); border-left: 2px solid var(--line-2); padding-left: 10px; }
+.step { display: flex; gap: 8px; align-items: center; }
+.step .dot { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--line); flex: none; position: relative; }
+.step.run { color: var(--ink); }
+.step.run .dot { border-color: var(--accent); border-top-color: transparent; animation: spin .7s linear infinite; }
+.step.ok .dot { border-color: var(--good); background: var(--good); }
+.icons { display: flex; gap: 14px; align-items: center; color: var(--ink-3); }
+.icons svg { width: 15px; height: 15px; }
+.btn { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; font-size: 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); white-space: nowrap; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.press { transform: scale(.94); }
+.ah { display: flex; gap: 6px; align-items: center; color: var(--crit); font-weight: 700; font-size: 12.5px; }
+.alertmsg { border-left: 3px solid var(--crit); padding-left: 10px; }
+.tree { display: flex; flex-direction: column; gap: 4px; background: var(--soft); border-radius: 8px; padding: 8px 10px; }
+.tn { display: flex; align-items: center; gap: 8px; font-size: 12.5px; animation: pop .3s ease backwards; }
+.tn.l1 { padding-left: 16px; border-left: 2px solid var(--line); margin-left: 6px; }
+.tn.l2 { padding-left: 34px; color: var(--ink-2); font-size: 12px; margin-left: 6px; border-left: 2px solid var(--line); }
+.tn b { font: 600 12px var(--f-mono); }
+.tn .neg { color: var(--crit); }
+.tag { font-style: normal; font-size: 11px; padding: 0 7px; border-radius: 4px; line-height: 18px; margin-left: auto; }
+.tag.ok { color: var(--good); background: var(--good-soft); }
+.tag.bad { color: var(--crit); background: var(--crit-soft); font-weight: 700; }
+.mini { height: 118px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px; }
+.prow { display: grid; grid-template-columns: 1fr 64px; gap: 2px 8px; font-size: 12px; align-items: center; }
+.prow .pq { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .ps { color: var(--ink-3); text-align: right; font-size: 11px; }
+.prow .pbar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.prow .pbar i { display: block; height: 100%; width: 0; background: var(--accent); }
+.prow.ok .ps { color: var(--good); } .prow.ok .pbar i { background: var(--good); }
+.prow.gap .ps { color: var(--warn); } .prow.gap .pbar i { background: var(--warn); }
+.whatif { background: var(--soft); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.wl { font-size: 12.5px; display: flex; justify-content: space-between; }
+.wl b { font: 600 13px var(--f-mono); color: var(--s2); }
+.sl { position: relative; height: 18px; }
+.sl .tr { position: absolute; left: 0; right: 0; top: 7px; height: 4px; border-radius: 2px; background: var(--line); }
+.sl .sf { position: absolute; left: 0; top: 7px; height: 4px; border-radius: 2px; background: var(--s2); }
+.sl .sk { position: absolute; top: 1px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: var(--panel); border: 2px solid var(--s2); box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+.sl .ends { position: absolute; top: 20px; left: 0; right: 0; display: flex; justify-content: space-between; font-size: 10.5px; color: var(--ink-3); }
+.wr { margin-top: 8px; font-size: 12.5px; }
+.wr b { font: 600 15px var(--f-mono); }
+.wr .up { color: var(--good); font: 600 12px var(--f-mono); margin-left: 6px; }
+.wn { font-size: 11.5px; color: var(--ink-3); }
+.doclink { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel); }
+.doclink .di { width: 28px; height: 32px; border-radius: 4px; background: var(--accent); position: relative; flex: none; }
+.doclink .di::after { content: ""; position: absolute; left: 6px; right: 6px; top: 9px; height: 12px; border-top: 2px solid #fff; border-bottom: 2px solid #fff; }
+.doclink div { display: flex; flex-direction: column; min-width: 0; }
+.doclink small { color: var(--ink-3); font-size: 11.5px; }
+.doclink .btn { margin-left: auto; }
+.composer { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.ibox { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 8px; display: flex; flex-direction: column; gap: 10px; }
+.ibox.focus { border-color: var(--accent); }
+.input { height: 20px; display: flex; align-items: center; position: relative; overflow: hidden; white-space: nowrap; }
+.input .ph { color: var(--ink-3); position: absolute; left: 0; }
+.caret { width: 1.5px; height: 16px; background: var(--accent); margin-left: 1px; animation: blink 1s steps(1) infinite; opacity: 0; }
+.ibox.focus .caret { opacity: 1; }
+.irow { display: flex; align-items: center; gap: 8px; }
+.pill { font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+.pill.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.send { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; }
+.send svg { width: 13px; height: 13px; }
+.outs { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-3); }
+.blist { flex: 1; min-height: 0; padding: 12px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
+.search { height: 32px; border: 1px solid var(--line); border-radius: 7px; display: flex; align-items: center; padding: 0 10px; color: var(--ink-3); font-size: 12.5px; margin-bottom: 6px; }
+.bgrp { font-size: 12px; color: var(--ink-3); margin: 8px 2px 2px; display: flex; justify-content: space-between; }
+.bi { display: grid; grid-template-columns: 40px 1fr auto; gap: 1px 10px; padding: 8px 10px; border-radius: 8px; align-items: center; }
+.bi .th { grid-row: 1 / span 2; width: 40px; height: 30px; border-radius: 5px; border: 1px solid var(--line); background: linear-gradient(var(--s1), var(--s1)) 4px 4px / 14px 5px no-repeat, linear-gradient(var(--muted), var(--muted)) 21px 4px / 14px 5px no-repeat, linear-gradient(var(--accent-soft), var(--accent-soft)) 4px 12px / 31px 13px no-repeat, var(--soft); }
+.bi.hover { background: var(--soft); }
+.bi.new { background: var(--accent-soft); animation: pop .4s ease backwards; }
+.modal-veil { position: absolute; z-index: 30; background: rgba(10, 14, 24, .38); border-radius: 8px; display: grid; place-items: center; }
+.modal { width: 460px; background: var(--panel); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow); animation: pop .3s ease backwards; }
+.modal .mh { font-size: 16px; font-weight: 700; }
+.frow { display: grid; grid-template-columns: 72px 1fr; gap: 8px; align-items: center; font-size: 13px; }
+.frow > span { color: var(--ink-3); }
+.field { border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
+.radios { display: flex; gap: 14px; font-size: 12.5px; }
+.radios span { display: flex; gap: 5px; align-items: center; }
+.radios i { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--line); }
+.radios .on i { border: 4px solid var(--accent); }
+.rule { display: flex; gap: 8px; align-items: center; font-size: 12.5px; }
+.rule i { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--line); flex: none; position: relative; }
+.rule.on i { background: var(--accent); border-color: var(--accent); }
+.rule.on i::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid #fff; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+.mnote { font-size: 11.5px; color: var(--ink-3); background: var(--soft); border-radius: 6px; padding: 7px 10px; line-height: 1.6; }
+.mfoot { display: flex; justify-content: flex-end; gap: 8px; }
+.toast.ok { border-left-color: var(--good); }
+.bi b { font-weight: 500; font-size: 13.5px; }
+.bi b { grid-column: 2; }
+.bi small { grid-column: 2; color: var(--ink-3); font-size: 11.5px; }
+.bi .st { grid-row: 1 / span 2; grid-column: 3; align-self: center; font-size: 11px; padding: 0 7px; border-radius: 4px; line-height: 18px; }
+.bi .st.alarm { color: var(--crit); background: var(--crit-soft); font-weight: 700; }
+.bi .st.sub { color: var(--accent); background: var(--accent-soft); }
+.bi.sel { background: var(--accent-soft); }
+
+.board { position: relative; padding: 12px 16px; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-radius: 8px; border: 1px solid var(--line); color: var(--ink); overflow: hidden;
+  --heat-lo: #cde2fb; --heat-hi: #104281; }
+.board > .bhead, .board > .fbar { position: relative; z-index: 1; }
+.board > .grid { z-index: 1; }
+.bgfx { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.board[class*="th-"] .bhead, .board[class*="th-"] .fbar { background: var(--panel); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border-radius: 8px; padding: 0 10px; }
+.board[class*="th-"] .card { -webkit-backdrop-filter: blur(var(--glass, 8px)) saturate(1.2); backdrop-filter: blur(var(--glass, 8px)) saturate(1.2); }
+.board.th-tank .card, .board.th-sonar .card, .board.th-fest .card, .board.th-brand .card, .board.th-weather .card, .board.th-link .card, .board.th-hud .card { text-shadow: 0 1px 3px rgba(0, 0, 0, .55); }
+.board.th-anime .card { text-shadow: 0 0 4px rgba(255, 255, 255, .9), 0 0 2px rgba(255, 255, 255, .9); }
+.tbadge { font-size: 11.5px; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--line); white-space: nowrap; }
+/* 水族箱：底图 + 鱼、气泡、水光；磨砂玻璃卡片 */
+.board.th-tank { --panel: rgba(4, 38, 50, .2); --soft: rgba(255, 255, 255, .08); --ink: #f2fbff; --ink-2: #cdeaf2; --ink-3: #8fc3d0; --line: rgba(255, 255, 255, .3); --line-2: rgba(255, 255, 255, .14); --s1: #7fe3ff; --s2: #ffb86b; --accent: #7fe3ff; --accent-soft: rgba(127, 227, 255, .18); --muted: rgba(255, 255, 255, .3); --heat-lo: #134f5f; --heat-hi: #9ff0ff; --glass: 2px; background: #083845 url(img/tank.jpg) center / cover; }
+.board.th-tank .card { border-radius: 14px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 8px 24px rgba(0, 0, 0, .2); }
+/* 常规主题 */
+.board.th-dark { --panel: #171c24; --soft: #1d232c; --ink: #e9eef5; --ink-2: #b3bdca; --ink-3: #8590a1; --line: #2a323e; --line-2: #20262f; --s1: #4c9bf0; --s2: #f0884c; --accent: #4c9bf0; --accent-soft: rgba(76, 155, 240, .16); --muted: #3a4452; --heat-lo: #1b2b40; --heat-hi: #4c9bf0; --glass: 0px; background: #0f1218; }
+.board.th-biz { --panel: #ffffff; --soft: #f2f4f8; --ink: #1b2440; --ink-2: #4a5470; --ink-3: #8790a8; --line: #d6dae4; --line-2: #eceef3; --s1: #1d3a7a; --s2: #c09a3e; --accent: #1d3a7a; --accent-soft: #e7ecf6; --muted: #c3c8d4; --heat-lo: #dfe6f3; --heat-hi: #1d3a7a; --glass: 0px; background: #eef0f4; }
+.board.th-biz .bhead { background: #1d3a7a; }
+.board.th-biz .btitle { color: #ffffff; font-family: "Noto Serif SC", serif; }
+.board.th-biz .ct { font-family: "Noto Serif SC", serif; }
+.board.th-biz .card { border-radius: 3px; border-top: 3px solid #1d3a7a; }
+/* 联动皮肤：运营事件表驱动 */
+.board.th-link { --panel: rgba(46, 12, 52, .24); --soft: rgba(255, 207, 90, .1); --ink: #fff6e2; --ink-2: #f4dca8; --ink-3: #c9a874; --line: rgba(255, 207, 90, .5); --line-2: rgba(255, 207, 90, .2); --s1: #ffcf5a; --s2: #ff7a59; --accent: #ffcf5a; --accent-soft: rgba(255, 207, 90, .18); --muted: rgba(255, 207, 90, .3); --heat-lo: #3c1446; --heat-hi: #ffcf5a; --glass: 2px; background: #2a0b33 url(img/link.jpg) center / cover; }
+.board.th-link .card { border-radius: 10px; box-shadow: 0 0 0 1px rgba(255, 207, 90, .25), 0 6px 18px rgba(0, 0, 0, .25); }
+.board.th-link .btitle, .board.th-link .ct { font-family: "Noto Serif SC", serif; color: #ffcf5a; }
+/* 游戏 HUD 同款：卡片做成游戏面板 */
+.board.th-hud { --panel: rgba(12, 44, 96, .5); --soft: rgba(255, 255, 255, .1); --ink: #ffffff; --ink-2: #d8ecff; --ink-3: #9cc4ea; --line: #f6c453; --line-2: rgba(246, 196, 83, .3); --s1: #5fe0ff; --s2: #ffd23f; --accent: #ffd23f; --accent-soft: rgba(255, 210, 63, .2); --muted: rgba(255, 255, 255, .3); --heat-lo: #123a6e; --heat-hi: #ffd23f; --glass: 3px; background: #06305a url(img/hud.jpg) center / cover; }
+.board.th-hud .card { border: 3px solid #f6c453; border-radius: 14px; box-shadow: inset 0 0 0 2px rgba(138, 90, 18, .9), 0 4px 0 #7a4a0c; }
+.board.th-hud .ch { background: linear-gradient(#ffd96a, #f0a020); border-radius: 10px 10px 0 0; border-bottom: 2px solid #b8730a; }
+.board.th-hud .ct { color: #5a2d00; font-weight: 700; text-shadow: none; }
+.board.th-hud .cm, .board.th-hud .more { color: #7a4a0c; text-shadow: none; }
+.board.th-hud .kv { text-shadow: 0 2px 0 #12305e; }
+.board.th-hud .kv::before { content: ""; display: inline-block; width: 18px; height: 18px; margin-right: 6px; vertical-align: -2px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff0b0, #f0a020 70%); box-shadow: 0 0 0 2px #b8730a; }
+.board.th-hud .bhead .btn, .board.th-hud #btnQuery { background: linear-gradient(#8ae86a, #3fae2a); color: #ffffff; border-color: #2d7f1c; box-shadow: 0 3px 0 #2d7f1c; border-radius: 10px; font-weight: 700; }
+.board.th-hud .btitle { color: #ffd96a; text-shadow: 0 2px 0 #7a4a0c; }
+/* 大屏轮播：投到会议室，大字号，卡片轮流放大 */
+.board.th-screen { --panel: #0c1630; --soft: #13203f; --ink: #eaf3ff; --ink-2: #b7c8e6; --ink-3: #7f93b8; --line: rgba(76, 201, 240, .3); --line-2: rgba(76, 201, 240, .14); --s1: #4cc9f0; --s2: #ffd166; --accent: #4cc9f0; --accent-soft: rgba(76, 201, 240, .14); --muted: #2a3a63; --heat-lo: #13264a; --heat-hi: #4cc9f0; --glass: 0px; background: radial-gradient(ellipse at 50% 0%, #102a5c 0%, #050b1d 70%); }
+.board.th-screen .kv { font-size: 26px; color: #ffffff; }
+.board.th-screen .ct { font-size: 14px; }
+.board.th-screen .card { transition: transform .5s, box-shadow .5s, opacity .5s; }
+.board.th-screen.spotting .card:not(.spot) { opacity: .45; }
+.board.th-screen .card.spot { transform: scale(1.05); z-index: 3; box-shadow: 0 0 0 2px #4cc9f0, 0 0 32px rgba(76, 201, 240, .5); }
+/* 海底声呐 */
+.board.th-sonar { --panel: rgba(2, 28, 20, .3); --soft: rgba(80, 255, 170, .06); --ink: #d9ffe9; --ink-2: #9fe6c1; --ink-3: #5fae86; --line: rgba(80, 255, 170, .35); --line-2: rgba(80, 255, 170, .15); --s1: #5dffb0; --s2: #ffd166; --accent: #5dffb0; --accent-soft: rgba(93, 255, 176, .14); --muted: rgba(93, 255, 176, .25); --heat-lo: #06311f; --heat-hi: #5dffb0; --glass: 0px; background: #021510; }
+.board.th-sonar .card { border-radius: 2px; }
+.board.th-sonar .card::before { content: ""; position: absolute; inset: -1px; pointer-events: none; --c: #5dffb0;
+  background: linear-gradient(var(--c), var(--c)) left top / 12px 2px no-repeat, linear-gradient(var(--c), var(--c)) left top / 2px 12px no-repeat, linear-gradient(var(--c), var(--c)) right top / 12px 2px no-repeat, linear-gradient(var(--c), var(--c)) right top / 2px 12px no-repeat, linear-gradient(var(--c), var(--c)) left bottom / 12px 2px no-repeat, linear-gradient(var(--c), var(--c)) left bottom / 2px 12px no-repeat, linear-gradient(var(--c), var(--c)) right bottom / 12px 2px no-repeat, linear-gradient(var(--c), var(--c)) right bottom / 2px 12px no-repeat; }
+.board.th-sonar .kv { color: #5dffb0; text-shadow: 0 0 8px rgba(93, 255, 176, .6); }
+/* 街机厅 */
+.board.th-arcade { --panel: rgba(25, 8, 48, .62); --soft: rgba(255, 210, 63, .08); --ink: #fff4fb; --ink-2: #f3b8e6; --ink-3: #b07fc7; --line: rgba(255, 210, 63, .7); --line-2: rgba(255, 210, 63, .25); --s1: #ff3fb4; --s2: #3ff0ff; --accent: #ffd23f; --accent-soft: rgba(255, 210, 63, .16); --muted: rgba(255, 63, 180, .3); --heat-lo: #2a0e46; --heat-hi: #ff3fb4; --glass: 4px; background: #0c0418; }
+.board.th-arcade .card { border-width: 2px; border-radius: 6px; box-shadow: 0 0 0 1px rgba(255, 63, 180, .35), 0 0 18px rgba(255, 63, 180, .25); }
+.board.th-arcade .kv { font-family: "Press Start 2P", monospace; font-size: 15px; color: #ffd23f; text-shadow: 0 0 6px rgba(255, 210, 63, .7); }
+.board.th-arcade .btitle { color: #ff8ad4; text-shadow: 0 0 8px rgba(255, 63, 180, .8); }
+.board.th-arcade::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 3; background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .16) 0 1px, transparent 1px 3px); }
+/* 二次元：原创角色插画做底图 */
+.board.th-anime { --panel: rgba(255, 255, 255, .26); --soft: rgba(255, 255, 255, .3); --ink: #1f2a44; --ink-2: #44506a; --ink-3: #74809a; --line: rgba(255, 255, 255, .85); --line-2: rgba(255, 255, 255, .5); --s1: #3d6fd8; --s2: #e0607e; --accent: #3d6fd8; --accent-soft: rgba(61, 111, 216, .14); --muted: rgba(100, 110, 140, .3); --heat-lo: #e3ecfb; --heat-hi: #2c55b0; --glass: 2px; background: #cfe9ff url(img/anime.jpg) center / cover; }
+.board.th-anime .card { border-radius: 14px; border-width: 1.5px; box-shadow: 0 6px 18px rgba(40, 60, 120, .16); }
+
+.board.th-anime .btitle::after { content: " ✦"; color: #3d6fd8; }
+.mascot { position: absolute; right: 6px; bottom: 0; height: 44%; z-index: 4; display: none; pointer-events: none; filter: drop-shadow(0 8px 16px rgba(60, 30, 80, .28)); animation: bob 3s ease-in-out infinite; }
+.mbubble { position: absolute; right: 196px; bottom: 30%; z-index: 5; max-width: 230px; display: none; background: #ffffff; color: #3a2440; border: 1.5px solid #9db6ea; border-radius: 12px; padding: 8px 12px; font: 13px/1.55 "Noto Sans SC", sans-serif; box-shadow: 0 6px 16px rgba(40, 60, 120, .2); }
+.mbubble::after { content: ""; position: absolute; right: -10px; bottom: 14px; border: 8px solid transparent; border-left-color: #9db6ea; }
+.board.th-anime .mascot { display: block; }
+.board.th-anime .mbubble { display: block; animation: pop .4s ease backwards; }
+@keyframes bob { 50% { transform: translateY(-6px); } }
+/* 活动皮肤：运营事件表驱动 */
+.board.th-fest { --panel: rgba(60, 4, 6, .2); --soft: rgba(245, 196, 107, .1); --ink: #fff3dc; --ink-2: #f3d39a; --ink-3: #c9a06a; --line: rgba(245, 196, 107, .55); --line-2: rgba(245, 196, 107, .2); --s1: #f5c46b; --s2: #ff6b4a; --accent: #f5c46b; --accent-soft: rgba(245, 196, 107, .18); --muted: rgba(245, 196, 107, .3); --heat-lo: #5a0f12; --heat-hi: #f5c46b; --glass: 2px; background: #5a0b0b url(img/fest.jpg) center / cover; }
+.board.th-fest .card { border-radius: 10px; }
+.board.th-fest .btitle, .board.th-fest .ct { font-family: "Noto Serif SC", serif; color: #f5c46b; }
+/* 看板天气：数据驱动 */
+.board.th-weather { --panel: rgba(16, 32, 48, .38); --soft: rgba(255, 255, 255, .08); --ink: #ffffff; --ink-2: #e6eef6; --ink-3: #b9c8d6; --line: rgba(255, 255, 255, .32); --line-2: rgba(255, 255, 255, .14); --s1: #9fe0ff; --s2: #ffd166; --accent: #ffd166; --accent-soft: rgba(255, 209, 102, .18); --muted: rgba(255, 255, 255, .3); --heat-lo: #2b4a63; --heat-hi: #cfefff; --glass: 2px; background: #1b2230; }
+.board.th-weather .card { border-radius: 12px; }
+/* 游戏同款：AI 从主视觉生成 */
+.board.th-brand { --panel: rgba(4, 30, 52, .34); --soft: rgba(255, 255, 255, .07); --ink: #f4fbff; --ink-2: #c9e6f2; --ink-3: #86b6c9; --line: rgba(255, 194, 75, .4); --line-2: rgba(120, 210, 255, .16); --s1: #3fd3ff; --s2: #ffc24b; --accent: #ffc24b; --accent-soft: rgba(255, 194, 75, .16); --muted: rgba(180, 220, 240, .35); --heat-lo: #0f4f6e; --heat-hi: #ffc24b; --glass: 4px; background: #032a4a url(img/brand.jpg) center / cover; }
+.board.th-brand .card { border-top: 2px solid #ffc24b; border-radius: 10px; }
+.board.th-brand .btitle::before { content: ""; display: inline-block; width: 18px; height: 18px; margin-right: 8px; vertical-align: -3px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff0b0, #f0a020 70%); box-shadow: 0 0 10px rgba(255, 194, 75, .7); }
+.thgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tile { border: 1.5px solid var(--line); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; min-width: 0; }
+.tile small { color: var(--ink-3); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .sw { height: 36px; border-radius: 5px; }
+.wxbar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); animation: pop .25s ease backwards; }
+.tile .sw i { width: 11px; height: 11px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .6); }
+.tile.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.cust { display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; animation: pop .25s ease backwards; }
+.crow { display: flex; align-items: center; gap: 8px; }
+.crow span { color: var(--ink-3); }
+.crow i { width: 18px; height: 18px; border-radius: 4px; display: inline-block; }
+.crow b { font-weight: 500; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
+.keyart { display: flex; gap: 10px; align-items: center; border: 1px dashed var(--line); border-radius: 8px; padding: 8px; }
+.keyart .ka { width: 72px; height: 46px; border-radius: 5px; flex: none; background: radial-gradient(circle at 72% 30%, #ffd166 0 9px, transparent 10px), radial-gradient(ellipse at 30% 72%, #ff7a59 0 12px, transparent 13px), linear-gradient(180deg, #0b5874, #032a4a); }
+.keyart div { display: flex; flex-direction: column; }
+.keyart small { color: var(--ink-3); font-size: 11.5px; }
+.pal { display: flex; gap: 6px; align-items: center; animation: pop .3s ease backwards; }
+.pal i { width: 26px; height: 26px; border-radius: 6px; }
+.pal span { font-size: 11.5px; color: var(--ink-2); margin-left: 4px; }
+.dyn { display: grid; grid-template-columns: 36px 1fr auto; gap: 10px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.dyn small { display: block; color: var(--ink-3); font-size: 11.5px; }
+.dyn em { font-style: normal; font-size: 11.5px; color: var(--good); }
+.dyn.on { border-color: var(--accent); background: var(--accent-soft); }
+.dic { width: 36px; height: 36px; border-radius: 8px; background: var(--soft); position: relative; overflow: hidden; }
+.dic.flip::after { content: "128"; position: absolute; inset: 0; display: grid; place-items: center; font: 600 12px var(--f-mono); color: var(--accent); }
+.dic.liq::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60%; background: var(--s1); opacity: .7; border-radius: 40% 40% 0 0; }
+.dic.race::after { content: ""; position: absolute; left: 6px; top: 8px; width: 22px; height: 4px; background: var(--s1); box-shadow: 0 8px 0 -0px var(--s1), 0 16px 0 var(--muted); border-radius: 2px; }
+.dic.marq::after { content: "»»"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--accent); font-weight: 700; }
+.dic.fish::after { content: ""; position: absolute; left: 8px; top: 12px; width: 18px; height: 10px; border-radius: 50%; background: var(--s1); box-shadow: 10px 0 0 -3px var(--s1); }
+.kv.flip { animation: flipin .35s ease; display: inline-block; }
+@keyframes flipin { from { transform: translateY(-35%); opacity: .35; } to { transform: none; opacity: 1; } }
+.livedot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); animation: blink 1.2s steps(1) infinite; }
+.gauge { display: flex; align-items: center; gap: 12px; padding: 2px 12px; }
+.gauge svg { width: 66px; height: 66px; }
+.gauge .wv { animation: wave 2.4s linear infinite; }
+@keyframes wave { from { transform: translateX(0); } to { transform: translateX(-40px); } }
+.gtxt { display: flex; flex-direction: column; }
+.gtxt b { font: 600 18px var(--f-mono); }
+.gtxt span { font-size: 11.5px; color: var(--ink-3); }
+.bhead { height: 36px; display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.fbar > * { flex: none; white-space: nowrap; }
+.fbar { height: 36px; display: flex; align-items: center; gap: 6px; margin-bottom: 10px; padding: 0 8px; background: var(--soft); border-radius: 8px; font-size: 12px; }
+.fbar .fl { color: var(--ink-3); margin-right: 2px; }
+.fchip { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 3px 7px; color: var(--ink-2); white-space: nowrap; }
+.fchip b { color: var(--ink); font-weight: 500; }
+.fchip.act { border-color: var(--s1); background: var(--accent-soft); }
+.fchip.act b { color: var(--s1); }
+.fchip.press { border-color: var(--accent); }
+.fbar .fadd { color: var(--accent); white-space: nowrap; }
+.fbar .freset { margin-left: auto; color: var(--ink-3); }
+.btn.sm { height: 24px; padding: 0 12px; }
+.opt { padding: 6px 10px; border-radius: 5px; font-size: 12.5px; }
+.opt.sel { background: var(--accent-soft); color: var(--accent); }
+.btitle { font-size: 17px; font-weight: 700; white-space: nowrap; }
+.ver { font: 11px var(--f-mono); color: var(--ink-2); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; }
+.chip { font-size: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 4px 9px; color: var(--ink-2); white-space: nowrap; }
+.chip b { color: var(--ink); font-weight: 500; }
+.chip.act { border-color: var(--s1); background: var(--accent-soft); }
+.chip.act b { color: var(--s1); }
+.bact { margin-left: auto; display: flex; gap: 8px; }
+.grid { position: relative; display: grid; grid-template-columns: repeat(12, 1fr); grid-auto-rows: 48px; gap: 10px; flex: 1; align-content: start; }
+.empty { position: absolute; left: 16px; right: 16px; top: 104px; bottom: 12px; border: 1.5px dashed var(--line); border-radius: 10px; display: grid; place-items: center; color: var(--ink-3); font-size: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; animation: pop .4s ease backwards; transition: box-shadow .25s, border-color .25s; }
+.card.hl { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.card.lift { box-shadow: var(--shadow); z-index: 4; border-color: var(--accent); }
+.ver.hl { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.more { color: var(--ink-3); font-size: 14px; line-height: 1; padding: 2px 5px; border-radius: 4px; letter-spacing: 1px; }
+.more.press, .more.on { background: var(--soft); color: var(--ink); }
+.dropph { position: absolute; z-index: 3; border: 2px dashed var(--accent); border-radius: 9px; background: var(--accent-soft); opacity: .7; }
+.co { position: absolute; z-index: 34; display: flex; align-items: center; gap: 6px; animation: pop .3s ease backwards; }
+.co i { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font: 600 12px var(--f-mono); font-style: normal; display: grid; place-items: center; box-shadow: 0 0 0 4px rgba(43, 92, 230, .22); }
+.co span { background: #1f2329; color: #fff; font-size: 12.5px; padding: 3px 10px; border-radius: 6px; white-space: nowrap; }
+.cmenu { position: absolute; z-index: 32; width: 176px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; display: flex; flex-direction: column; animation: pop .2s ease backwards; }
+.cmenu span { padding: 6px 10px; border-radius: 5px; font-size: 12.5px; display: flex; justify-content: space-between; }
+.cmenu span.on { background: var(--soft); }
+.cmenu .del { color: var(--crit); border-top: 1px solid var(--line-2); margin-top: 2px; padding-top: 8px; }
+.cmenu .confirm { flex-direction: column; gap: 8px; color: var(--ink-2); font-size: 12px; }
+.cmenu .confirm div { display: flex; gap: 6px; justify-content: flex-end; }
+.btn.danger { background: var(--crit); border-color: var(--crit); color: #fff; }
+.spec { position: absolute; z-index: 33; width: 410px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; animation: pop .25s ease backwards; }
+.spec h4 { margin: 0; font-size: 14px; display: flex; justify-content: space-between; }
+.spec h4 em { font-style: normal; color: var(--ink-3); font-weight: 400; }
+.kv2 { display: grid; grid-template-columns: 70px 1fr; gap: 4px 8px; font-size: 12.5px; }
+.kv2 span:nth-child(odd) { color: var(--ink-3); }
+.kv2 b { font-weight: 500; }
+.sqlbox { font: 11px/1.65 var(--f-mono); background: var(--soft); border-radius: 6px; padding: 8px 10px; white-space: pre; color: var(--ink); }
+.sqlbox .kw { color: var(--accent); font-weight: 600; }
+.sqlbox .pm { color: var(--s2); }
+.spec .foot2 { font-size: 11.5px; color: var(--ink-3); }
+.drawer { position: absolute; z-index: 31; width: 360px; background: var(--panel); border-left: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 0 8px 8px 0; display: flex; flex-direction: column; animation: slidein .3s ease backwards; }
+.drawer .dh2 { height: 46px; display: flex; align-items: center; padding: 0 16px; font-weight: 700; font-size: 14.5px; border-bottom: 1px solid var(--line-2); }
+.drawer .dh2 em { margin-left: auto; font-style: normal; color: var(--ink-3); font-weight: 400; }
+.drawer .dbody { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+.dtabs { display: flex; gap: 4px; }
+.dtabs span { font-size: 12.5px; padding: 3px 12px; border-radius: 6px; color: var(--ink-2); }
+.dtabs span.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.mrow2 { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 7px; font-size: 13px; border: 1px solid transparent; }
+.mrow2 small { margin-left: auto; font-size: 11px; color: var(--ink-3); }
+.mrow2 .src2 { font-size: 10.5px; color: var(--good); background: var(--good-soft); border-radius: 4px; padding: 0 6px; }
+.mrow2.sel { border-color: var(--accent); background: var(--accent-soft); }
+.cfg { display: grid; grid-template-columns: 48px 1fr; gap: 6px 8px; align-items: center; font-size: 12.5px; animation: pop .25s ease backwards; }
+.cfg span:nth-child(odd) { color: var(--ink-3); }
+.cfg b { font-weight: 500; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; }
+.aibox { border: 1px solid var(--accent); border-radius: 8px; padding: 8px 10px; min-height: 60px; font-size: 13px; position: relative; }
+.aibox .ph { color: var(--ink-3); }
+.aibox .caret { opacity: 1; display: inline-block; vertical-align: middle; }
+.aigo { display: flex; justify-content: flex-end; }
+.airow { display: flex; gap: 8px; align-items: center; font-size: 12.5px; animation: pop .25s ease backwards; }
+.airow em { font-style: normal; color: var(--ink-3); }
+.ainote { font-size: 11.5px; color: var(--ink-3); }
+.pv { height: 120px; border: 1px solid var(--line-2); border-radius: 8px; position: relative; }
+.drawer .dfoot { padding: 12px 16px; border-top: 1px solid var(--line-2); display: flex; justify-content: flex-end; gap: 8px; }
+.card.alert { border-color: var(--crit); box-shadow: 0 0 0 3px var(--crit-soft); }
+.card.gap { border-style: dashed; border-color: var(--warn); }
+.card.skel { border-style: solid; border-color: var(--line); }
+.card.skel .ct { color: var(--ink-3); }
+.scheme { background: var(--soft); border-radius: 8px; padding: 9px 11px; display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.scheme b { font-size: 12.5px; }
+.scheme b em { font-style: normal; font-weight: 400; font-size: 11px; color: var(--accent); margin-left: 6px; background: var(--accent-soft); padding: 0 6px; border-radius: 4px; }
+.opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.opt2 { border: 1px solid var(--accent); color: var(--accent); border-radius: 999px; padding: 3px 11px; font-size: 12.5px; background: var(--panel); }
+.opt2.on { background: var(--accent); color: #fff; }
+.opt2.off { opacity: .45; border-color: var(--line); color: var(--ink-3); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.ck2 { font-style: normal; font-size: 11.5px; border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; background: var(--panel); line-height: 20px; }
+.ck2.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.ck2.on::before { content: "✓ "; }
+.ck2.add { border-style: dashed; color: var(--ink-3); }
+.sel2 { font-style: normal; font-size: 11.5px; border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; background: var(--panel); color: var(--ink-2); margin-left: 2px; white-space: nowrap; }
+.sel2.chg { border-color: var(--s2); color: var(--s2); background: rgba(235, 104, 52, .08); }
+.lnk { font-style: normal; color: var(--accent); font-size: 11.5px; margin-left: 4px; }
+.sact { display: flex; gap: 8px; margin-top: 4px; }
+.sugg { display: flex; flex-wrap: wrap; gap: 6px; }
+.sugg span { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; background: var(--panel); color: var(--ink-2); }
+.sugg span::before { content: "↳ "; color: var(--ink-3); }
+.srow { display: grid; grid-template-columns: 46px 1fr; gap: 6px; animation: pop .3s ease backwards; }
+.srow span { color: var(--ink-3); }
+.srow.gapr { color: var(--warn); }
+.card.skel .cm { visibility: hidden; }
+.card.skel .cb::after, .cb.loading::after { content: ""; position: absolute; inset: 6px; border-radius: 6px; background: linear-gradient(100deg, var(--line-2) 20%, var(--soft) 50%, var(--line-2) 80%); background-size: 200% 100%; animation: sweep 1s linear infinite; }
+.cb.loading::after { background: linear-gradient(100deg, transparent 20%, var(--accent-soft) 50%, transparent 80%); background-size: 200% 100%; }
+.cb.loading > * { opacity: .3; }
+.ch { height: 32px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--line-2); }
+.ct { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm { margin-left: auto; font: 10.5px var(--f-mono); color: var(--good); white-space: nowrap; }
+.cm.gapt { color: var(--warn); }
+.cb { position: relative; flex: 1; min-height: 0; }
+.chart { position: absolute; inset: 4px 6px 4px 4px; }
+.kpi { padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+.kv { font: 600 22px/1.25 var(--f-mono); font-variant-numeric: tabular-nums; }
+.kd { display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--ink-3); }
+.delta { font: 600 11px var(--f-mono); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.delta.dn { color: var(--crit); background: var(--crit-soft); }
+.delta.up { color: var(--good); background: var(--good-soft); }
+.kalert { font-size: 11px; color: var(--crit); font-weight: 700; }
+.gapbody { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.gapbody .gt { display: flex; gap: 6px; align-items: center; font-weight: 700; color: var(--warn); }
+.gapbody p { margin: 0; }
+.gapbody ol { margin: 0; padding-left: 18px; }
+.gapbody .btn { align-self: flex-start; }
+.dropdown { position: absolute; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 6px; display: flex; flex-direction: column; width: 330px; animation: pop .2s ease backwards; }
+.dropdown .dh { font-size: 11.5px; color: var(--ink-3); padding: 2px 8px 4px; }
+.vrow { display: grid; grid-template-columns: 36px 1fr auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 5px; font-size: 12.5px; }
+.vrow b { font: 600 11.5px var(--f-mono); color: var(--ink-2); }
+.vrow small { color: var(--ink-3); font-size: 11px; display: block; }
+.vrow.cur { background: var(--accent-soft); }
+.vrow .dots { grid-column: 1 / -1; color: var(--ink-3); text-align: center; }
+.docpanel { position: absolute; z-index: 35; background: #eef0f3; border-radius: 8px; border: 1px solid var(--line); display: flex; flex-direction: column; overflow: hidden; animation: pop .35s ease backwards; }
+.docbar { height: 38px; flex: none; background: var(--panel); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 14px; font-size: 12.5px; color: var(--ink-2); }
+.docbar b { color: var(--ink); font-weight: 500; }
+.docbar .sv { margin-left: auto; color: var(--good); font-size: 12px; }
+.docscroll { flex: 1; min-height: 0; overflow: hidden; padding: 16px 0; }
+.docpage { width: 660px; margin: 0 auto; background: var(--panel); border-radius: 4px; padding: 26px 40px 30px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+.docpage > * { animation: pop .3s ease backwards; }
+.docpage h1 { margin: 0; font-size: 24px; }
+.docpage .meta { font-size: 12px; color: var(--ink-3); }
+.docpage h3 { margin: 8px 0 0; font-size: 16px; }
+.docpage p, .docpage li { font-size: 13.5px; line-height: 1.7; margin: 0; }
+.docpage ul { margin: 0; padding-left: 20px; }
+.callout { background: #fff7e6; border-radius: 6px; padding: 10px 14px; font-size: 13.5px; line-height: 1.7; }
+.src { color: var(--accent); font-size: 12px; }
+.dtable { border-collapse: collapse; font-size: 13px; width: 100%; }
+.dtable th, .dtable td { border: 1px solid var(--line); padding: 5px 10px; text-align: left; }
+.dtable th { background: var(--soft); font-weight: 500; }
+.dtable td.n { font-family: var(--f-mono); text-align: right; }
+.dchart { height: 190px; position: relative; }
+
+.cursor { position: absolute; left: 0; top: 0; width: 22px; height: 22px; z-index: 60; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+.ripple { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 2px solid var(--accent); z-index: 59; animation: ripple .5s ease-out forwards; }
+.toast { position: absolute; right: 24px; top: 70px; width: 380px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--crit); border-radius: 10px; box-shadow: var(--shadow); padding: 12px 14px; font-size: 13.5px; display: flex; flex-direction: column; gap: 4px; animation: slidein .4s ease backwards; }
+.toast .tapp { font-size: 11.5px; color: var(--ink-3); display: flex; gap: 6px; align-items: center; }
+.toast .tapp i { width: 14px; height: 14px; border-radius: 4px; background: #3370ff; }
+.toast .go { color: var(--accent); font-size: 12.5px; }
+.overlay { position: absolute; inset: 0; background: var(--veil); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; animation: capin .35s ease backwards; color: #fff; }
+.overlay big { font-size: 40px; font-weight: 700; letter-spacing: .03em; }
+.overlay span { font-size: 18px; color: #e3e8f2; }
+.chtag { position: absolute; left: 620px; bottom: 16px; background: #1f2329; color: #fff; border-radius: 999px; padding: 5px 16px 5px 6px; font-size: 14px; display: flex; gap: 8px; align-items: center; animation: tagin 2.6s ease both; }
+.chtag .tn2 { font: 600 12px var(--f-mono); background: var(--accent); border-radius: 999px; padding: 1px 9px; }
+.endcard { width: 860px; background: var(--panel); border-radius: 16px; padding: 30px 36px; display: flex; flex-direction: column; gap: 18px; box-shadow: var(--shadow); color: var(--ink); }
+.endcard h3 { margin: 0; font-size: 26px; }
+.endcard .three { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.endcard .three div { background: var(--soft); border-radius: 10px; padding: 14px 16px; }
+.endcard .three b { display: block; font-size: 16px; margin-bottom: 4px; }
+.endcard .three span { font-size: 13px; color: var(--ink-2); }
+.endcard .flow { font-size: 13.5px; color: var(--ink-2); }
+.endcard .foot { font-size: 12px; color: var(--ink-3); }
+
+@keyframes pop { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes sweep { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@keyframes ripple { from { opacity: .9; transform: scale(.4); } to { opacity: 0; transform: scale(1.3); } }
+@keyframes slidein { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: none; } }
+@keyframes capin { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes tagin { 0% { opacity: 0; transform: translateY(8px); } 12%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+.stage.paused *, .stage.paused *::after { animation-play-state: paused !important; }
+.stage.ff *, .stage.ff *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; }
+@media (max-width: 640px) {
+  .wrap { padding-block: 18px 40px; padding-inline: 16px; }
+  .intro h1 { font-size: 23px; }
+  .caption { font-size: 14px; padding: 10px 14px; }
+  .now { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .caption.fade { animation: none; } }
+</style>
+</head>
+<body>
+
+<main class="wrap">
+  <header class="intro">
+    <span class="eyebrow">brain-query · Chat2BI 路线 B</span>
+    <h1>Chat2BI 动态原型</h1>
+    <p>从零开始：在对话里一句话生成一块看板，先出方案、再自动排版、并行取数；保存到看板列表，设好推送和异动提醒；在页面上查口径、拖拽、删除，用一句话让 AI 加一张新卡片。一周后，机器人报警充值金额异动：点一下顺网网吧整块看板联动，追问后先剔除国庆活动结束的正常回落，再定位到版本更新后网吧玩家进不了大厅；拖滑块推演修复后的充值；一句话生成周会文档；最后一键换主题、加动态组件。画面按现有问数平台的界面模拟，「智能看板」是左侧菜单里新增的一项。</p>
+    <span class="fake">项目、渠道、指标和运营事件的名称取自猎鱼达人3D，画面中的全部数字均为演示虚构</span>
+  </header>
+
+  <section class="player" id="player" aria-label="演示播放器">
+    <div class="screen" id="screen">
+      <div class="stage" id="stage" aria-hidden="true">
+        <div class="cam" id="cam">
+          <div class="app">
+            <div class="topnav">
+              <span class="brand">数据管理平台</span>
+              <span>系统管理</span><span>CMDB</span><span>运维工单</span><span>查询系统</span><span>审批管理</span><span>巡检平台</span>
+              <span class="on">智能问数</span><span>更多 ▾</span>
+              <span class="me"><span class="av">吉</span>吉云飞 ▾</span>
+            </div>
+            <div class="ptabs">
+              <span>智能问数 <i class="x">✕</i></span><span class="on">智能看板 <i class="x">✕</i></span><span>问数日志</span><span>Skill管理</span><span>分析包管理</span><span>知识库</span><span>指标管理</span><em class="proj">当前项目：<b>猎鱼达人3D</b> ▾</em>
+            </div>
+            <div class="mainarea">
+              <nav class="side">
+                <span class="grp"><i class="gi"></i>智能问数<em>▴</em></span>
+                <span class="it">智能问数</span>
+                <span class="it on">智能看板 <i class="new">新</i></span>
+                <span class="it">问数日志</span>
+                <span class="it">Skill管理</span>
+                <span class="it">分析包管理</span>
+                <span class="it">知识库</span>
+                <span class="it">订阅中心</span>
+                <span class="it">订阅推送日志</span>
+                <span class="it">分享日志</span>
+                <span class="sep"></span>
+                <span class="grp"><i class="gi"></i>数据治理<em>▾</em></span>
+                <span class="grp"><i class="gi"></i>权限管理<em>▾</em></span>
+                <span class="grp"><i class="gi"></i>MCP管理<em>▾</em></span>
+              </nav>
+              <div class="content">
+                <aside class="chat">
+                  <div class="chathead"><span class="seg" id="segChat">对话</span><span class="seg" id="segList">看板列表</span><span class="newc">＋ 新建看板</span></div>
+                  <div class="pane" id="paneList">
+                    <div class="blist">
+                      <div class="search">搜索看板…</div>
+                      <div class="bgrp"><span id="bgMine">我的看板 · 3</span><span>按最近更新 ▾</span></div>
+                      <div class="bi" id="biPay"><i class="th"></i><b>经营周报 · 周会</b><small id="biPayMeta">9 张卡片 · 每周一 09:00 推送 · v1</small><span class="st sub" id="biPaySt">订阅中</span></div>
+                      <div class="bi"><i class="th"></i><b>新增用户日报</b><small>6 张卡片 · 每天 09:30 推送 · v5</small><span class="st sub">订阅中</span></div>
+                      <div class="bi"><i class="th"></i><b>红宝石产出监控</b><small>5 张卡片 · 每天 10:00 推送 · v4</small><span class="st sub">订阅中</span></div>
+                      <div class="bgrp"><span>共享给我 · 2</span></div>
+                      <div class="bi"><i class="th"></i><b>版本运营看板</b><small>运营组 · 10/09 更新 · 8 张卡片</small></div>
+                      <div class="bi"><i class="th"></i><b>国庆活动复盘</b><small>运营组 · 10/08 更新 · 11 张卡片</small></div>
+                    </div>
+                  </div>
+                  <div class="pane" id="paneChat" hidden>
+                    <div class="msgs" id="msgs"></div>
+                    <div class="composer">
+                      <div class="ibox" id="ibox">
+                        <div class="input" id="input"><span class="ph" id="ph">请输入你的问题...</span><span id="inputText"></span><span class="caret"></span></div>
+                        <div class="irow"><span class="pill">Auto ▾</span><span class="pill">选择技能 ▾</span><span class="send" id="send"><svg viewBox="0 0 16 16"><path d="M2 8 14 2 10 14 8 9z" fill="#fff"/></svg></span></div>
+                      </div>
+                      <div class="outs">产出：<span class="pill">飞书文档</span><span class="pill on">看板</span></div>
+                    </div>
+                  </div>
+                </aside>
+                <section class="board" id="board">
+                  <div class="bhead">
+                    <span class="btitle" id="btitle"></span>
+                    <span class="ver" id="ver" hidden></span><span class="tbadge" id="tBadge" hidden></span>
+                    <span class="bact"><span class="btn" id="btnAdd">＋ 添加卡片</span><span class="btn" id="btnSave">保存</span><span class="btn" id="btnTheme">主题</span><span class="btn">解读</span><span class="btn">分享</span></span>
+                  </div>
+                  <canvas class="bgfx" id="bgfx" hidden></canvas><img class="mascot" src="img/mascot.png" alt=""><div class="mbubble">本周充值比前 7 天少 18.6%。问题集中在顺网网吧，建议优先处理。</div>
+                  <div class="fbar" id="fbar">
+                    <span class="fl">查询控件</span>
+                    <span class="fchip" id="fPeriod">时间 <b id="periodLabel">近 7 天 · 10/05–10/11</b> ▾</span>
+                    <span class="fchip" id="fCmp">对比 <b id="cmpLabel">前 7 天</b> ▾</span>
+                    <span class="fchip" id="fCh">渠道 <b id="chLabel">全部</b> <span id="chX" hidden>✕</span></span>
+                    <span class="fchip">VIP 等级 <b>全部</b> ▾</span>
+                    <span class="fchip">新老用户 <b>全部</b> ▾</span>
+                    <span class="fadd">＋ 添加筛选</span>
+                    <span class="freset">重置</span><span class="btn primary sm" id="btnQuery">查询</span>
+                  </div>
+                  <div class="grid" id="grid"></div>
+                  <div class="empty" id="empty">从左侧选一块看板，或者在对话里一句话新建。</div>
+                </section>
+              </div>
+            </div>
+          </div>
+          <div id="layer"></div>
+          <svg class="cursor" id="cursor" viewBox="0 0 22 22"><path d="M3 2 L3 18 L7.5 14 L10.5 20.5 L13.2 19.3 L10.3 12.9 L16.5 12.9 Z" fill="#ffffff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="hud" id="hud"></div>
+      </div>
+      <div class="poster" id="poster">
+        <button id="bigPlay" type="button">▶ 播放演示</button>
+        <span id="posterMeta">正在准备画面…</span>
+      </div>
+    </div>
+    <div class="caption" id="caption" aria-live="polite">正在准备画面…</div>
+    <div class="controls">
+      <button type="button" id="playBtn">▶ 播放</button>
+      <span class="time" id="time">0:00 / 0:00</span>
+      <div class="track" id="track" role="slider" aria-label="播放进度" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="rail"><div class="fill" id="fill"></div></div></div>
+      <button type="button" id="speedBtn" aria-label="倍速">1×</button>
+      <span class="now" id="nowChap"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec">章节</h2>
+    <ol class="chap" id="chapList"></ol>
+  </section>
+
+  <section>
+    <h2 class="sec">看板存在哪、怎么回看</h2>
+    <div class="store">
+      <div><h3>存的是“怎么取数”，不是数本身</h3><p>一块看板 = 布局、全局筛选、版本号，加上若干卡片。每张卡片存参数化 SQL 骨架、参数、图表设置和来源（哪个会话、哪一轮）。落在 brain-query 自己的存储里，按项目和所有者归属，不另起一套库。</p></div>
+      <div><h3>打开就是最新的数</h3><p>左侧「智能看板」进入看板列表：我的看板、共享给我的。打开时按当前参数重新执行每张卡片的 SQL，结果按 SQL 指纹加参数做短期缓存，同一时段多人打开不会重复打数仓。</p></div>
+      <div><h3>想看“当时的数”，看快照</h3><p>每次推送、每份生成的文档都带当时的数字快照，在订阅推送日志和文档里能找到。看板本身每次改动记一个版本，历史版本可以查看和回放；回放展示的是看板怎么变过来的，数字仍按当前口径重算。</p></div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = (s) => document.querySelector(s);
+const stage = $('#stage'), screenEl = $('#screen'), cam = $('#cam'), hud = $('#hud');
+const msgs = $('#msgs'), grid = $('#grid'), layer = $('#layer'), cursor = $('#cursor');
+const W = 1440, H = 810, ROW_H = 48, GAP = 10;
+let S = 1;
+function fit() { S = screenEl.clientWidth / W; stage.style.transform = `scale(${S})`; }
+new ResizeObserver(fit).observe(screenEl);
+fit();
+
+/* ---------------- 演示数据（全部虚构） ---------------- */
+function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const DAYS = [];
+for (let i = 0; i < 37; i++) DAYS.push(new Date(2026, 8, 5 + i)); // 09/05 … 10/11
+const md = (d) => `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+function fixWindow(v, a, b, target) {
+  const sum = v.slice(a, b + 1).reduce((x, y) => x + y, 0);
+  let acc = 0;
+  for (let i = a; i <= b; i++) { v[i] = Math.round(v[i] * target / sum); acc += v[i]; }
+  v[b] += target - acc;
+}
+const HOLIDAY = (i) => i >= 26 && i <= 32; // 国庆活动 10/01–10/07
+const REV = (() => {
+  const r = rng(7), v = DAYS.map((d, i) => 190000 * ((d.getDay() === 0 || d.getDay() === 6) ? 1.08 : 1) * (HOLIDAY(i) ? 1.25 : 1) * (0.95 + r() * 0.1));
+  v[34] *= 0.9; v[35] *= 0.89; v[36] *= 0.88; // 10/09 版本更新后网吧掉量
+  fixWindow(v, 23, 29, 1578300); fixWindow(v, 30, 36, 1284560);
+  return v;
+})();
+const WB = (() => {
+  const r = rng(11), v = REV.map((x, i) => x * (i >= 34 ? 0.12 : 0.207 * (0.95 + r() * 0.1)));
+  fixWindow(v, 23, 29, 326000); fixWindow(v, 30, 36, 214000);
+  return v;
+})();
+const NORMAL = (() => { // 节前 3 周（09/10–09/30）日充值的正常区间
+  const xs = REV.slice(5, 26), m = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const sd = Math.sqrt(xs.reduce((a, b) => a + (b - m) * (b - m), 0) / xs.length);
+  return { lo: m - 2 * sd, hi: m + 2 * sd };
+})();
+const ALERT_TXT = `昨日 ${(REV[36] / 10000).toFixed(1)} 万 · 低于节前正常区间 ${(NORMAL.lo / 10000).toFixed(1)}–${(NORMAL.hi / 10000).toFixed(1)} 万`;
+const WBK = '顺网网吧';
+const KPI = { all: { cur: { rev: 1284560, payers: 8412, dau: 52340, gem: 31.6 }, prev: { rev: 1578300, payers: 9986, dau: 60120, gem: 30.9 } },
+  [WBK]: { cur: { rev: 214000, payers: 1380, dau: 9860, gem: 31.2 }, prev: { rev: 326000, payers: 2060, dau: 15020, gem: 30.8 } } };
+const REV30 = REV.slice(7).reduce((a, b) => a + b, 0);
+const KPI30 = { cur: { rev: REV30, payers: 26380, dau: 56240, gem: 31.3 }, prev: { rev: Math.round(REV30 / 1.064), payers: 25310, dau: 54340, gem: 31.1 } };
+const CHANNELS = ['自营', '顺网网吧', '百度投放', '360信息流', '2345', '联想商店'];
+const CH_REV = [48.6, 21.4, 18.2, 15.9, 13.1, 11.3];
+const TIERS = ['VIP0', 'VIP1', 'VIP2', 'VIP3', 'VIP4-5', 'VIP6+'];
+const TIER_N = { all: [3120, 2410, 1380, 820, 470, 212], [WBK]: [520, 380, 220, 140, 82, 38] };
+const SR = { x: DAYS.slice(27).map(md), wb: [93.1, 92.8, 93.4, 93.0, 92.7, 93.2, 92.9, 62.4, 59.0, 57.6], other: [93.3, 93.0, 93.5, 93.2, 93.1, 93.4, 93.0, 93.2, 92.8, 93.1] };
+const RET_BASE = [38.2, 27.9, 22.6, 19.1, 16.4, 14.3];
+function retData(ch) {
+  const rows = [], cells = [];
+  let min = Infinity, max = -Infinity;
+  for (let i = 30; i < 36; i++) {
+    rows.push(md(DAYS[i]));
+    for (let d = 1; d <= 6; d++) {
+      if (i + d > 36) continue;
+      const r = rng(i * 31 + d * 7 + (ch ? 500 : 0)); r();
+      const v = +(RET_BASE[d - 1] * (ch ? 0.97 : 1) * (0.965 + r() * 0.07)).toFixed(1);
+      cells.push([d - 1, i - 30, v]); min = Math.min(min, v); max = Math.max(max, v);
+    }
+  }
+  return { rows, cols: ['D2', 'D3', 'D4', 'D5', 'D6', 'D7'], cells, min, max };
+}
+// 推演：近 3 天日均为基线，网吧部分按进大厅转化率等比放大
+const avg3 = (v) => (v[34] + v[35] + v[36]) / 3;
+const FC_X = [12, 13, 14, 15, 16, 17, 18].map((d) => `10/${d}`);
+const FC_WK = [1, 1, 1, 1, 1, 1.1, 1.1];
+const fcDay = (rate, wk) => (avg3(REV) - avg3(WB) + avg3(WB) * rate / 0.58) * wk;
+const fcWeek = (sr) => FC_WK.reduce((s, wk) => s + fcDay(sr, wk), 0);
+const wan = (v) => (v / 10000).toFixed(1);
+
+/* ---------------- 播放引擎（定时器驱动，暂停时虚拟时间不走） ---------------- */
+const ABORT = { abort: true };
+let runId = 0, paused = true, speed = 1, fast = false, vt = 0, total = 0, chapStarts = [], curChap = -1, ended = false, started = false;
+function tween(ms, fn) {
+  const my = runId;
+  if (fast || ms <= 0) { fn(1); vt += Math.max(0, ms); return Promise.resolve(); }
+  return new Promise((res, rej) => {
+    let t = 0, last = performance.now();
+    const v0 = vt;
+    const step = () => {
+      if (my !== runId) { rej(ABORT); return; }
+      const now = performance.now(), dt = Math.min(100, now - last); last = now;
+      if (!paused) t += dt * speed;
+      const k = Math.min(1, t / ms);
+      vt = v0 + Math.min(t, ms);
+      fn(k);
+      if (k >= 1) res(); else setTimeout(step, 16);
+    };
+    setTimeout(step, 16);
+  });
+}
+const wait = (ms) => tween(ms, () => {});
+// 并行动作：快进量时长时按最长的一支计时，避免把同时发生的动作累加
+async function parallel(fns) {
+  if (!fast) { await Promise.all(fns.map((f) => f())); return; }
+  const v0 = vt; let longest = 0;
+  for (const f of fns) { vt = v0; await f(); longest = Math.max(longest, vt - v0); }
+  vt = v0 + longest;
+}
+const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
+
+/* ---------------- 镜头与光标 ---------------- */
+let Z = 1, TX = 0, TY = 0;
+function setCam(z, tx, ty) { Z = z; TX = tx; TY = ty; cam.style.transform = `translate(${tx}px, ${ty}px) scale(${z})`; }
+function rel(el) {
+  const r = el.getBoundingClientRect(), c = cam.getBoundingClientRect(), k = S * Z;
+  return { x: (r.left - c.left) / k, y: (r.top - c.top) / k, w: r.width / k, h: r.height / k };
+}
+let cx = 1200, cy = 700;
+function setCursor(x, y) { cx = x; cy = y; cursor.style.transform = `translate(${x - 3}px, ${y - 2}px)`; }
+async function moveXY(tx, ty, ms = 650) { const fx = cx, fy = cy; await tween(ms, (k) => { const e = ease(k); setCursor(fx + (tx - fx) * e, fy + (ty - fy) * e); }); }
+async function moveTo(el, dx = 0, dy = 0, ms = 650) { const r = rel(el); await moveXY(r.x + r.w / 2 + dx, r.y + r.h / 2 + dy, ms); }
+function ripple() { if (fast) return; const rp = h('div', 'ripple'); rp.style.left = cx + 'px'; rp.style.top = cy + 'px'; layer.append(rp); setTimeout(() => rp.remove(), 600); }
+async function click(el, dx = 0, dy = 0) { await moveTo(el, dx, dy); ripple(); el.classList.add('press'); await wait(160); el.classList.remove('press'); }
+
+/* ---------------- 画面工具 ---------------- */
+function h(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+function say(text) { const c = $('#caption'); c.textContent = text; c.classList.remove('fade'); void c.offsetWidth; c.classList.add('fade'); }
+function scrollChat() { msgs.scrollTop = msgs.scrollHeight; }
+function showPane(which) {
+  $('#paneChat').hidden = which !== 'chat'; $('#paneList').hidden = which !== 'list';
+  $('#segChat').classList.toggle('on', which === 'chat'); $('#segList').classList.toggle('on', which === 'list');
+}
+async function typeAndSend(text) {
+  const it = $('#inputText');
+  await click($('#input'));
+  $('#ibox').classList.add('focus'); $('#ph').hidden = true;
+  await tween(text.length * 65, (k) => { it.textContent = text.slice(0, Math.round(k * text.length)); });
+  await wait(250);
+  await click($('#send'));
+  it.textContent = ''; $('#ibox').classList.remove('focus'); $('#ph').hidden = false;
+  addUser(text);
+  await wait(300);
+}
+let turn = null;
+function addUser(text) { turn = null; const e = h('div', 'u'); e.textContent = text; msgs.append(e); scrollChat(); return e; }
+function ensureTurn() {
+  if (turn) return turn;
+  const e = h('div', 'a', '<span class="bot"></span><div class="ab"></div>');
+  msgs.append(e);
+  turn = { el: e, ab: e.querySelector('.ab'), status: null, steps: null, n: 0, ms: 0, closed: true };
+  return turn;
+}
+function closeSteps() {
+  const t = turn; if (!t || !t.status || t.closed) return;
+  t.closed = true;
+  t.status.innerHTML = `<i class="ck"></i>执行完成 · ${t.n} 步 · ${(t.ms / 1000 * 2.4).toFixed(1)} 秒 <span class="chev">▾</span>`;
+  t.steps.hidden = true;
+}
+function addAgent(html) { const t = ensureTurn(); closeSteps(); const e = h('div', 'ab', html); t.ab.append(e); scrollChat(); return e; }
+function addSteps(list) {
+  const t = ensureTurn();
+  t.status = h('div', 'status', `<i class="sp"></i>执行中 · 第 1 步`);
+  t.steps = h('div', 'steps'); t.closed = false; t.n = list.length; t.ms = 0;
+  list.forEach((x) => t.steps.append(h('div', 'step', `<i class="dot"></i><span>${x}</span>`)));
+  t.ab.append(t.status, t.steps); scrollChat();
+  return {
+    async run(i, ms) {
+      const r = t.steps.children[i];
+      t.status.innerHTML = `<i class="sp"></i>执行中 · 第 ${i + 1} 步`;
+      r.classList.add('run'); await wait(ms); r.classList.remove('run'); r.classList.add('ok'); t.ms += ms;
+      if (i === list.length - 1) closeSteps();
+    },
+  };
+}
+const ICONS = '<div class="icons"><svg viewBox="0 0 16 16"><path d="M5 7v7H2V7zM5 7l3-5c1.2 0 1.8.8 1.6 2L9.2 6H13c.8 0 1.4.8 1.2 1.6l-1.2 5c-.2.8-.8 1.4-1.6 1.4H5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><svg viewBox="0 0 16 16" style="transform:rotate(180deg)"><path d="M5 7v7H2V7zM5 7l3-5c1.2 0 1.8.8 1.6 2L9.2 6H13c.8 0 1.4.8 1.2 1.6l-1.2 5c-.2.8-.8 1.4-1.6 1.4H5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><svg viewBox="0 0 16 16"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><svg viewBox="0 0 16 16"><circle cx="12" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="4" cy="8" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5.6 7.1l4.8-2.7M5.6 8.9l4.8 2.7" stroke="currentColor" stroke-width="1.3"/></svg></div>';
+const WARN_SVG = '<svg width="14" height="14" viewBox="0 0 16 16"><path d="M8 1.5 15 14H1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6v4M8 11.6v.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+
+/* ---------------- 图表 ---------------- */
+let charts = {}, state;
+function T() {
+  const cs = getComputedStyle($('#board')), g = (n) => cs.getPropertyValue(n).trim();
+  return { ink: g('--ink'), ink2: g('--ink-2'), ink3: g('--ink-3'), line: g('--line'), line2: g('--line-2'), panel: g('--panel'), s1: g('--s1'), s2: g('--s2'), muted: g('--muted'), heatLo: g('--heat-lo'), heatHi: g('--heat-hi') };
+}
+function mixHex(a, b, t) {
+  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16)), pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
+  return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+const lum = (hex) => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const FONT = { fontFamily: 'Noto Sans SC, sans-serif' };
+const tip = (t, extra) => Object.assign({ backgroundColor: t.panel, borderColor: t.line, textStyle: { color: t.ink, fontSize: 12 } }, extra);
+function chartIn(id, el) {
+  if (!window.echarts) return null;
+  if (!charts[id] || charts[id].getDom() !== el) { if (charts[id]) charts[id].dispose(); charts[id] = echarts.init(el, null, { renderer: 'svg' }); }
+  return charts[id];
+}
+function trendOption(k) {
+  const t = T(), src = state.ch ? WB : REV, y = src.slice(7), x = DAYS.slice(7).map(md), n = y.length;
+  const m = Math.max(1, Math.ceil(k * n)), fc = state.whatif != null && !state.ch;
+  const lastPt = { value: y[n - 1], symbolSize: 7, itemStyle: { color: t.s1, borderColor: t.panel, borderWidth: 2 },
+    label: { show: !fc, position: 'top', color: t.ink2, fontSize: 10, formatter: (p) => wan(p.value) + '万' } };
+  const actual = y.map((v, i) => (i >= m ? '-' : (i === n - 1 && k >= 1 ? lastPt : v)));
+  const series = [{ name: '实际', type: 'line', data: actual, showSymbol: true, symbolSize: 0, lineStyle: { width: 2, color: t.s1 }, itemStyle: { color: t.s1 },
+    areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: t.s1 + '30' }, { offset: 1, color: t.s1 + '00' }]) } }];
+  const xs = fc ? x.concat(FC_X) : x;
+  if (fc) {
+    actual.push(...FC_X.map(() => '-'));
+    const pad = Array(n - 1).fill('-');
+    const mk = (sr) => pad.concat([y[n - 1]], FC_WK.map((wk) => Math.round(fcDay(sr, wk))));
+    series.push({ name: '按现状', type: 'line', data: mk(0.58), showSymbol: false, lineStyle: { width: 2, type: 'dashed', color: t.muted }, itemStyle: { color: t.muted } });
+    series.push({ name: '网吧修复后', type: 'line', data: mk(state.whatif), showSymbol: false, lineStyle: { width: 2, type: 'dashed', color: t.s2 }, itemStyle: { color: t.s2 } });
+  }
+  return {
+    animation: false, textStyle: FONT,
+    legend: { show: fc, right: 4, top: 0, itemWidth: 16, itemHeight: 8, textStyle: { color: t.ink2, fontSize: 10.5 } },
+    grid: { left: 40, right: 30, top: fc ? 28 : 18, bottom: 22 },
+    tooltip: tip(t, { trigger: 'axis', valueFormatter: (v) => (v === '-' || v == null ? '—' : '¥' + Math.round(v).toLocaleString()) }),
+    xAxis: { type: 'category', data: xs, boundaryGap: false, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { color: t.ink3, fontSize: 10, interval: 6 } },
+    yAxis: { type: 'value', min: state.ch ? 10000 : 100000, splitNumber: 3, axisLabel: { color: t.ink3, fontSize: 10, formatter: (v) => v / 10000 + '万' }, splitLine: { lineStyle: { color: t.line2 } } },
+    series,
+  };
+}
+function barOption(cats, vals, horiz, fmt, k, sel) {
+  const t = T();
+  const cat = { type: 'category', data: cats, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { color: t.ink2, fontSize: 10.5 } };
+  const val = { type: 'value', splitNumber: 3, axisLabel: { color: t.ink3, fontSize: 10 }, splitLine: { lineStyle: { color: t.line2 } } };
+  if (horiz) { cat.inverse = true; val.axisLabel.show = false; val.splitLine.show = false; val.max = Math.max(...vals) * 1.18; }
+  const data = vals.map((v, i) => {
+    const off = sel && cats[i] !== sel;
+    return { value: +(v * k).toFixed(1), itemStyle: { color: off ? t.muted : t.s1 }, label: { color: off ? t.ink3 : t.ink2 } };
+  });
+  return {
+    animation: false, textStyle: FONT,
+    grid: horiz ? { left: 66, right: 10, top: 8, bottom: 8 } : { left: 38, right: 8, top: 18, bottom: 22 },
+    tooltip: tip(t, { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: fmt }),
+    xAxis: horiz ? val : cat, yAxis: horiz ? cat : val,
+    series: [{ type: 'bar', data, barWidth: '54%', itemStyle: { borderRadius: horiz ? [0, 4, 4, 0] : [4, 4, 0, 0] },
+      label: { show: k >= 1, position: horiz ? 'right' : 'top', fontSize: 10, formatter: (p) => fmt(p.value) } }],
+  };
+}
+function heatOption(k) {
+  const t = T(), r = retData(state.ch), m = Math.ceil(k * r.cells.length);
+  const data = r.cells.slice(0, m).map(([x, y, v]) => {
+    const q = (v - r.min) / (r.max - r.min || 1);
+    return { value: [x, y, v], label: { color: lum(mixHex(t.heatLo, t.heatHi, q)) < 0.5 ? '#f4f8fd' : '#0c1a2e' } };
+  });
+  return {
+    animation: false, textStyle: FONT,
+    grid: { left: 40, right: 6, top: 4, bottom: 20 },
+    tooltip: tip(t, { formatter: (p) => `${r.rows[p.value[1]]} 注册 · ${r.cols[p.value[0]]} 留存：${p.value[2]}%` }),
+    xAxis: { type: 'category', data: r.cols, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: t.ink3, fontSize: 10 } },
+    yAxis: { type: 'category', data: r.rows, inverse: true, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: t.ink3, fontSize: 10 } },
+    visualMap: { show: false, min: r.min, max: r.max, dimension: 2, inRange: { color: [0, 0.2, 0.4, 0.6, 0.8, 1].map((q) => mixHex(t.heatLo, t.heatHi, q)) } },
+    series: [{ type: 'heatmap', data, label: { show: true, fontSize: 9.5, formatter: (p) => p.value[2].toFixed(1) }, itemStyle: { borderColor: t.panel, borderWidth: 2, borderRadius: 3 } }],
+  };
+}
+const BANK = (() => { const r = rng(23); return DAYS.map((d, i) => Math.round(3600 * (HOLIDAY(i) ? 0.86 : 1) * (0.92 + r() * 0.16))); })();
+function bankOption(k) {
+  const t = T(), y = BANK.slice(7).map((v) => (state.ch ? Math.round(v * 0.19) : v)), x = DAYS.slice(7).map(md), m = Math.max(1, Math.ceil(k * y.length));
+  return {
+    animation: false, textStyle: FONT,
+    grid: { left: 36, right: 12, top: 14, bottom: 22 },
+    tooltip: tip(t, { trigger: 'axis', valueFormatter: (v) => v + ' 人' }),
+    xAxis: { type: 'category', data: x, boundaryGap: false, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { color: t.ink3, fontSize: 10, interval: 9 } },
+    yAxis: { type: 'value', min: state.ch ? 300 : 2000, splitNumber: 2, axisLabel: { color: t.ink3, fontSize: 10 }, splitLine: { lineStyle: { color: t.line2 } } },
+    series: [{ type: 'line', data: y.map((v, i) => (i < m ? v : '-')), showSymbol: false, lineStyle: { width: 2, color: t.s1 }, itemStyle: { color: t.s1 } }],
+  };
+}
+function srOption() {
+  const t = T();
+  return {
+    animation: false, textStyle: FONT,
+    legend: { right: 4, top: 0, itemWidth: 14, itemHeight: 8, textStyle: { color: t.ink2, fontSize: 10 } },
+    grid: { left: 30, right: 10, top: 22, bottom: 20 },
+    tooltip: tip(t, { trigger: 'axis', valueFormatter: (v) => v + '%' }),
+    xAxis: { type: 'category', data: SR.x, boundaryGap: false, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { color: t.ink3, fontSize: 9.5, interval: 2 } },
+    yAxis: { type: 'value', min: 50, max: 100, splitNumber: 2, axisLabel: { color: t.ink3, fontSize: 9.5 }, splitLine: { lineStyle: { color: t.line2 } } },
+    series: [
+      { name: '其他渠道', type: 'line', data: SR.other, showSymbol: false, lineStyle: { width: 2, color: t.muted }, itemStyle: { color: t.muted } },
+      { name: '顺网网吧', type: 'line', data: SR.wb, showSymbol: false, lineStyle: { width: 2, color: t.s1 }, itemStyle: { color: t.s1 },
+        markPoint: { symbol: 'circle', symbolSize: 8, itemStyle: { color: t.s1, borderColor: t.panel, borderWidth: 2 }, label: { show: true, position: 'right', color: t.ink2, fontSize: 10, formatter: '版本更新' }, data: [{ coord: ['10/09', 62.4] }] } },
+    ],
+  };
+}
+
+/* ---------------- 卡片 ---------------- */
+const CARDS = {
+  kpiRev: { title: '充值金额', kind: 'kpi', key: 'rev' }, kpiPay: { title: '充值用户数', kind: 'kpi', key: 'payers' },
+  kpiDau: { title: '活跃用户数 · 日均', kind: 'kpi', key: 'dau' }, kpiGem: { title: '每元充值红宝石产出', kind: 'kpi', key: 'gem' },
+  trend: { title: '近 30 天充值金额', kind: 'line' }, channel: { title: '分渠道充值（万元）', kind: 'channel' },
+  tier: { title: 'VIP 等级充值人数', kind: 'tier' }, ret: { title: '新增用户留存 · 按注册日', kind: 'heat' }, gap: { title: '百度 / 360 投放 ROI', kind: 'gap' },
+  bank: { title: '破产用户数', kind: 'bank' },
+};
+const LAYOUT = {
+  kpiRev: { c: 1, r: 1, w: 3, h: 2 }, kpiPay: { c: 4, r: 1, w: 3, h: 2 }, kpiDau: { c: 7, r: 1, w: 3, h: 2 }, kpiGem: { c: 10, r: 1, w: 3, h: 2 },
+  trend: { c: 1, r: 3, w: 8, h: 4 }, channel: { c: 9, r: 3, w: 4, h: 4 },
+  tier: { c: 1, r: 7, w: 4, h: 4 }, ret: { c: 5, r: 7, w: 5, h: 4 }, gap: { c: 10, r: 7, w: 3, h: 4 },
+  bank: { c: 6, r: 7, w: 4, h: 4 },
+};
+let cards = {};
+function addCard(id, skel) {
+  const def = CARDS[id], p = LAYOUT[id];
+  const c = h('div', 'card' + (def.kind === 'gap' && !skel ? ' gap' : '') + (skel ? ' skel' : ''));
+  const meta = def.kind === 'gap' ? '<span class="cm gapt">缺口</span>' : '<span class="cm">SQL ✓</span>';
+  c.innerHTML = `<div class="ch"><span class="ct">${def.title}</span>${meta}<span class="more">⋯</span></div><div class="cb"></div>`;
+  c.style.gridColumn = `${p.c} / span ${p.w}`; c.style.gridRow = `${p.r} / span ${p.h}`;
+  cards[id] = c; grid.append(c); $('#empty').hidden = true;
+  if (!skel) renderCard(id);
+  return c;
+}
+const pctChg = (a, b) => (a / b - 1) * 100;
+function deltaChip(v, pp) { return `<span class="delta ${v >= 0 ? 'up' : 'dn'}">${v >= 0 ? '▲' : '▼'} ${Math.abs(v).toFixed(pp ? 2 : 1)}${pp ? 'pp' : '%'}</span>`; }
+const MTD = REV.slice(26).reduce((a, b) => a + b, 0);
+const RACE_SHARE = [0.378, 0.207, 0.142, 0.124, 0.102, 0.088];
+function raceOption(i) {
+  const t = T(), wb = i >= 34 ? 0.118 : RACE_SHARE[1];
+  const sh = RACE_SHARE.map((v, j) => (j === 1 ? wb : v)), tot = sh.reduce((a, b) => a + b, 0);
+  const vals = sh.map((v) => +(REV[i] * v / tot / 10000).toFixed(1));
+  return {
+    animation: true, animationDuration: 0, animationDurationUpdate: 700, animationEasingUpdate: 'linear', textStyle: FONT,
+    grid: { left: 66, right: 40, top: 8, bottom: 8 },
+    xAxis: { type: 'value', max: 'dataMax', show: false },
+    yAxis: { type: 'category', data: CHANNELS, inverse: true, animationDuration: 300, animationDurationUpdate: 300, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { color: t.ink2, fontSize: 10.5 } },
+    series: [{ type: 'bar', realtimeSort: true, barWidth: '54%', data: vals.map((v, j) => ({ value: v, itemStyle: { color: j === 1 ? t.s2 : t.s1, borderRadius: [0, 4, 4, 0] } })),
+      label: { show: true, position: 'right', color: t.ink2, fontSize: 10, valueAnimation: true, formatter: (p) => (+p.value).toFixed(1) } }],
+    graphic: [{ type: 'text', right: 6, bottom: 6, style: { text: md(DAYS[i]), fill: t.ink3, font: '600 18px JetBrains Mono, monospace' } }],
+  };
+}
+function gaugeHTML() {
+  const pct = Math.round(MTD / 6000000 * 100), y = 4 + (100 - pct) * 0.72;
+  return `<div class="gauge"><svg viewBox="0 0 80 80"><defs><clipPath id="gclip"><circle cx="40" cy="40" r="35"/></clipPath></defs>
+    <circle cx="40" cy="40" r="38" style="fill:none;stroke:var(--s1);stroke-width:2"/>
+    <g clip-path="url(#gclip)"><g transform="translate(0 ${y.toFixed(1)})"><path class="wv" d="M0 6 Q10 0 20 6 T40 6 T60 6 T80 6 T100 6 T120 6 T140 6 T160 6 V90 H0 Z" style="fill:var(--s1);opacity:.8"/></g></g>
+    <text x="40" y="46" text-anchor="middle" style="font:700 16px JetBrains Mono,monospace;fill:var(--ink)">${pct}%</text></svg>
+    <div class="gtxt"><b>¥${(MTD / 10000).toFixed(1)} 万</b><span>本月已充值 · 目标 600 万</span></div></div>`;
+}
+let liveTimer = null;
+function startLive() {
+  clearInterval(liveTimer);
+  liveTimer = setInterval(() => {
+    if (paused || !state || !state.dyn) return;
+    if (state.dyn.live != null && cards.kpiRev) { state.dyn.live += 200 + Math.round(Math.random() * 900); renderCard('kpiRev'); }
+    if (state.dyn.race != null && cards.channel) { state.dyn.race = state.dyn.race >= 36 ? 30 : state.dyn.race + 1; renderCard('channel'); }
+  }, 900);
+}
+function renderCard(id) {
+  const c = cards[id]; if (!c || c.classList.contains('skel')) return;
+  const def = CARDS[id], body = c.querySelector('.cb'), k = state.draw[id] == null ? 1 : state.draw[id];
+  const dyn = state.dyn || {};
+  if (id === 'kpiGem' && dyn.gauge) { c.querySelector('.ct').textContent = '本月充值目标完成率'; body.innerHTML = gaugeHTML(); return; }
+  if (id === 'kpiRev' && dyn.live != null) {
+    body.innerHTML = `<div class="kpi"><div><span class="kv flip">¥${Math.round(dyn.live).toLocaleString()}</span></div><div class="kd"><i class="livedot"></i><span>实时 · 本周累计</span></div></div>`;
+    return;
+  }
+  if (id === 'channel' && dyn.race != null) {
+    c.querySelector('.ct').textContent = '分渠道日充值排行（万元）';
+    let rbox = body.querySelector('.chart');
+    if (!rbox) { body.innerHTML = ''; rbox = h('div', 'chart'); body.append(rbox); }
+    const rc = chartIn(id, rbox); if (rc) rc.setOption(raceOption(dyn.race));
+    return;
+  }
+  if (def.kind === 'kpi') {
+    const set = state.period === '30d' ? KPI30 : KPI[state.ch || 'all'], cur = set.cur, prev = set.prev, key = def.key;
+    let val;
+    if (key === 'rev') val = '¥' + Math.round(cur.rev * k).toLocaleString();
+    if (key === 'payers') val = Math.round(cur.payers * k).toLocaleString();
+    if (key === 'dau') val = Math.round(cur.dau * k).toLocaleString();
+    if (key === 'gem') val = (cur.gem * k).toFixed(1) + '<small style="font-size:12px;font-weight:400"> 宝石/元</small>';
+    const d = pctChg(cur[key], prev[key]);
+    const extra = key === 'rev' && state.alert && !state.ch ? `<div class="kalert">⚠ ${ALERT_TXT}</div>` : `<div class="kd">${deltaChip(d, false)}<span>对比前 ${state.period === '30d' ? 30 : 7} 天</span></div>`;
+    body.innerHTML = `<div class="kpi"><div class="kv">${val}</div>${extra}</div>`;
+    return;
+  }
+  if (def.kind === 'gap') {
+    body.innerHTML = `<div class="gapbody"><div class="gt">${WARN_SVG}这个数暂时取不到</div><p>数仓里没有百度、360 的投放消耗数据，指标库也没有 ROI 口径。</p><ol><li>接入投放平台的消耗数据</li><li>指标库补建「投放 ROI」口径</li></ol><span class="btn">发起补建需求</span></div>`;
+    return;
+  }
+  let box = body.querySelector('.chart');
+  if (!box) { body.innerHTML = ''; box = h('div', 'chart'); body.append(box); }
+  const ch = chartIn(id, box); if (!ch) return;
+  let opt;
+  if (def.kind === 'line') opt = trendOption(k);
+  const chVals = state.period === '30d' ? CH_REV.map((v) => +(v * REV30 / 1284560).toFixed(1)) : CH_REV;
+  if (def.kind === 'channel') opt = barOption(CHANNELS, chVals, true, (v) => (+v).toFixed(1), k, state.ch);
+  if (def.kind === 'tier') opt = barOption(TIERS, TIER_N[state.ch || 'all'], false, (v) => Math.round(v).toLocaleString(), k, null);
+  if (def.kind === 'heat') opt = heatOption(k);
+  if (def.kind === 'bank') opt = bankOption(k);
+  ch.setOption(opt, true);
+  ch.resize();
+}
+async function fillCard(id, ms) {
+  const c = cards[id]; c.classList.remove('skel');
+  if (CARDS[id].kind === 'gap') c.classList.add('gap');
+  state.draw[id] = 0; renderCard(id);
+  await tween(ms, (k) => { state.draw[id] = ease(k); renderCard(id); });
+  delete state.draw[id]; renderCard(id);
+}
+async function hl(ids, ms) { ids.forEach((id) => cards[id] && cards[id].classList.add('hl')); await wait(ms); ids.forEach((id) => cards[id] && cards[id].classList.remove('hl')); }
+async function refreshAll(mutate) {
+  const ids = Object.keys(cards).filter((id) => CARDS[id].kind !== 'gap');
+  ids.forEach((id) => cards[id].querySelector('.cb').classList.add('loading'));
+  await wait(650);
+  mutate();
+  ids.forEach((id) => { cards[id].querySelector('.cb').classList.remove('loading'); renderCard(id); });
+}
+function setBoard(title, ver) {
+  $('#btitle').textContent = title; const v = $('#ver'); v.hidden = !ver;
+  v.textContent = !ver ? '' : ver.startsWith('v') ? `${ver} 已保存 ▾` : ver;
+  $('#btnSave').classList.toggle('primary', ver === '草稿 · 未保存');
+}
+function clearBoard() {
+  Object.keys(charts).forEach((id) => { charts[id].dispose(); }); charts = {}; cards = {};
+  grid.innerHTML = ''; layer.innerHTML = ''; $('#empty').hidden = false; setBoard('', '');
+}
+function setPeriod(p) {
+  state.period = p;
+  $('#periodLabel').textContent = p === '30d' ? '近 30 天 · 09/12–10/11' : '近 7 天 · 10/05–10/11';
+  $('#cmpLabel').textContent = p === '30d' ? '前 30 天' : '前 7 天';
+}
+function setChannel(ch) {
+  state.ch = ch; $('#chLabel').textContent = ch || '全部'; $('#chX').hidden = !ch; $('#fCh').classList.toggle('act', !!ch);
+}
+
+/* ---------------- 章节脚本 ---------------- */
+async function ch1() {
+  const ov = h('div', 'overlay', '<big>一周后 · 周一 08:50</big><span>周会前 10 分钟</span>');
+  hud.append(ov);
+  clearBoard(); setChannel(null); setPeriod('7d');
+  msgs.innerHTML = '<div class="hello">你好。可以直接问数，也可以让我搭看板、改看板。</div>'; turn = null;
+  showPane('chat');
+  $('#biPayMeta').textContent = '9 张卡片 · 每周一 09:00 推送 · v4';
+  await wait(2000);
+  ov.remove();
+  const toast = h('div', 'toast', `<span class="tapp"><i></i>飞书 · 运营周会</span><span><b>Chat2BI 机器人</b>：猎鱼达人3D 充值金额异动。${ALERT_TXT}。</span><span class="go">查看看板 →</span>`);
+  hud.append(toast);
+  say('周一早上，周会前 10 分钟。还没开口问，机器人先来找你：充值金额跌出了正常区间。');
+  $('#biPaySt').className = 'st alarm'; $('#biPaySt').textContent = '异动';
+  await wait(900);
+  const a = addAgent(`<div class="ah">${WARN_SVG}异动 · 充值金额</div><p>昨日（10/11）充值 ${(REV[36] / 10000).toFixed(1)} 万，低于节前正常区间。正常区间按节前 3 周算，国庆期间的高点不计入基线。</p><p>相关看板：经营周报 · 周会</p>`);
+  a.classList.add('alertmsg');
+  await wait(3200);
+  say('同一条提醒也出现在对话里。看板都在旁边的「看板列表」：我的看板、共享给我的，推送时间、版本号和异动标记一眼能看到。');
+  await click($('#segList'));
+  showPane('list');
+  await wait(500);
+  await moveTo($('#biPay'), -40, 0);
+  $('#biPay').classList.add('hover');
+  await wait(3000);
+  await click($('#biPay'), -40, 0);
+  $('#biPay').classList.remove('hover');
+  toast.remove();
+  $('#biPay').classList.add('sel');
+  state.alert = true;
+  setBoard('经营周报 · 周会', 'v4');
+  BOARD_V4.forEach((id) => addCard(id, false));
+  placeCard('ret', { c: 1, r: 7, w: 5, h: 4 });
+  cards.kpiRev.classList.add('alert');
+  await wait(900);
+  showPane('chat');
+  addAgent('<p>已打开「经营周报 · 周会」，异动卡片已标红。</p>');
+  say('打开的就是上周保存的那块看板，异动卡片已经标红。');
+  await moveTo(cards.kpiRev.querySelector('.kv'), 0, 30);
+  await wait(3000);
+}
+const BOARD_V4 = ['kpiRev', 'kpiPay', 'kpiDau', 'kpiGem', 'trend', 'channel', 'ret', 'bank', 'gap'];
+async function ch2() {
+  say('点一下顺网网吧，整块看板跟着它过滤，其他渠道变灰。');
+  await wait(400);
+  const ch = charts.channel;
+  if (ch) {
+    const px = ch.convertToPixel({ seriesIndex: 0 }, [CH_REV[1], 1]), r = rel(ch.getDom());
+    await moveXY(r.x + px[0] - 24, r.y + px[1]);
+  } else await moveTo(cards.channel);
+  ripple();
+  await wait(200);
+  cards.kpiRev.classList.remove('alert');
+  await refreshAll(() => setChannel(WBK));
+  await wait(900);
+  say('网吧一个渠道，充值和活跃用户都少了三成多。');
+  await hl(['kpiRev', 'kpiDau'], 2600);
+  await typeAndSend('为什么网吧掉这么多');
+  const st = addSteps(['对照运营事件表：国庆活动 10/01–10/07', '拆解充值：活跃用户 × 付费率 × 人均充值', '按天对比网吧与其他渠道']);
+  await st.run(0, 800); await st.run(1, 900); await st.run(2, 800);
+  const a = addAgent('<div class="tree"></div>');
+  const tree = a.querySelector('.tree');
+  const rows = [
+    ['tn', '<span>顺网网吧 充值金额</span><b class="neg">−34.4%</b>'],
+    ['tn l1', '<span>国庆活动结束，各渠道普遍回落</span><b>−14%</b><i class="tag ok">预期内</i>'],
+    ['tn l1', '<span>付费率 14.0% · 人均充值 ¥155</span><b>持平</b><i class="tag ok">正常</i>'],
+    ['tn l1', '<span>活跃用户</span><b class="neg">−34%</b><i class="tag bad">主因</i>'],
+    ['tn l2', '<span>进大厅转化率 93% → 58%，10/09 版本更新后开始，只有网吧</span>'],
+  ];
+  say('归因先剔掉预期内的部分：国庆活动结束，各渠道都在回落。');
+  for (const [cls, html] of rows) { tree.append(h('div', cls, html)); scrollChat(); await wait(650); }
+  const mini = h('div', 'mini'); a.append(mini);
+  a.append(h('p', '', '玩家照常启动游戏，却没进到大厅。10/09 版本更新后网吧客户端可能没更新成功，建议先找网吧渠道确认更新推送。'));
+  a.insertAdjacentHTML('beforeend', ICONS);
+  scrollChat();
+  const sc = chartIn('sr', mini); if (sc) { sc.setOption(srOption(), true); sc.resize(); }
+  say('剩下的才是异常：10/09 版本更新后，网吧玩家开了游戏却进不了大厅。');
+  await wait(900);
+  await wait(3800);
+  await wait(700);
+}
+async function ch3() {
+  say('回到全部渠道，再问一个假设。');
+  await click($('#chX'));
+  await refreshAll(() => setChannel(null));
+  await typeAndSend('如果网吧的问题明天修好，下周充值能到多少');
+  const st = addSteps(['以近 3 天日均为基线推算下周', '网吧进大厅转化率设为可调假设']);
+  await st.run(0, 800); await st.run(1, 700);
+  const a = addAgent(`<div class="whatif"><div class="wl"><span>假设：网吧进大厅转化率</span><b data-sr>58%</b></div><div class="sl"><div class="tr"></div><div class="sf"></div><div class="sk"></div><div class="ends"><span>40%</span><span>100%</span></div></div><div class="wr">下周充值预计 <b data-fc></b><span class="up" data-up></span></div><div class="wn">这是推演，不是取数结果；趋势图上用虚线标出。</div></div>`);
+  const sk = a.querySelector('.sk'), sf = a.querySelector('.sf'), slider = a.querySelector('.sl');
+  const upd = (sr) => {
+    const p = (sr - 0.4) / 0.6 * 100;
+    sk.style.left = p + '%'; sf.style.width = p + '%';
+    a.querySelector('[data-sr]').textContent = Math.round(sr * 100) + '%';
+    a.querySelector('[data-fc]').textContent = wan(fcWeek(sr)) + ' 万';
+    const up = fcWeek(sr) - fcWeek(0.58);
+    a.querySelector('[data-up]').textContent = up > 1 ? `比按现状多 ${wan(up)} 万` : '按现状';
+    state.whatif = sr; renderCard('trend');
+  };
+  upd(0.58);
+  scrollChat();
+  say('拖一下滑块，预测线实时重算。推演一律画成虚线，并写明假设。');
+  await moveTo(sk);
+  const tr = rel(slider);
+  await tween(1800, (k) => { const sr = 0.58 + 0.35 * ease(k); upd(sr); setCursor(tr.x + tr.w * (sr - 0.4) / 0.6, tr.y + tr.h / 2); });
+  await wait(400);
+  await wait(800);
+  await wait(2800);
+  await wait(700);
+}
+async function ch4() {
+  say('周会要材料？一句话生成。');
+  await typeAndSend('把这块看板写成周会文档');
+  const st = addSteps(['读取 9 张卡片、归因和推演', '成稿 · 结论先行，数字带出处', '写入飞书文档 · 回读核对']);
+  await st.run(0, 800); await st.run(1, 900);
+  const br = rel($('#board'));
+  const dp = h('div', 'docpanel', '<div class="docbar"><b>经营周报 · 10/05–10/11</b><span>飞书文档</span><span class="sv">写入中…</span></div><div class="docscroll"><div class="docpage"></div></div>');
+  Object.assign(dp.style, { left: br.x + 'px', top: br.y + 'px', width: br.w + 'px', height: br.h + 'px' });
+  layer.append(dp);
+  const page = dp.querySelector('.docpage'), scroller = dp.querySelector('.docscroll');
+  const fixed = wan(fcWeek(0.93)), keep = wan(fcWeek(0.58));
+  const blocks = [
+    '<h1>猎鱼达人3D 经营周报 · 10/05–10/11</h1>', '<div class="meta">智能问数生成 · 吉云飞 · 今天 08:56</div>',
+    `<div class="callout">本周充值 128.5 万，比前 7 天少 18.6%。大部分是国庆活动结束的正常回落，各渠道普遍降 14% 左右；异常的是顺网网吧：10/09 版本更新后进大厅转化率从 93% 掉到 58%，比正常回落多掉约 6.5 万。若本周修复，下周充值预计 ${fixed} 万，按现状是 ${keep} 万。</div>`,
+    '<h3>核心指标</h3>',
+    '<table class="dtable"><tr><th>指标</th><th>本周</th><th>对比前 7 天</th></tr><tr><td>充值金额</td><td class="n">¥1,284,560</td><td class="n">−18.6%</td></tr><tr><td>充值用户数</td><td class="n">8,412</td><td class="n">−15.8%</td></tr><tr><td>活跃用户数（日均）</td><td class="n">52,340</td><td class="n">−12.9%</td></tr><tr><td>每元充值红宝石产出</td><td class="n">31.6 宝石/元</td><td class="n">+2.3%</td></tr></table>',
+    '<h3>充值趋势与推演</h3>', 'CHART',
+    '<h3>异动与归因</h3>',
+    '<ul><li>国庆活动 10/01–10/07 结束，各渠道充值普遍回落 14% 左右，属预期内。<span class="src">［出处：运营事件表 · 分渠道充值］</span></li><li>顺网网吧充值 −34.4%，付费率和人均充值基本持平，活跃用户 −34%。<span class="src">［出处：分渠道充值 · 顺网网吧］</span></li><li>10/09 版本更新后，网吧客户端进大厅转化率 93% → 58%，其他渠道正常。<span class="src">［出处：进大厅转化率对比］</span></li></ul>',
+    '<h3>待补口径</h3>', '<p>百度 / 360 投放 ROI：缺投放消耗数据和 ROI 口径，已发起补建需求，本期不出数。</p>',
+  ];
+  say('图、结论、出处和取不到的部分都写进去。');
+  for (const b of blocks) {
+    if (b === 'CHART') {
+      const box = h('div', 'dchart'); page.append(box);
+      const c = chartIn('doc', box); if (c) { c.setOption(trendOption(1), true); c.resize(); }
+    } else page.insertAdjacentHTML('beforeend', b);
+    scroller.scrollTop = Math.max(0, page.offsetHeight - scroller.clientHeight * 0.7);
+    await wait(420);
+  }
+  await st.run(2, 700);
+  dp.querySelector('.sv').textContent = '已保存 · 回读核对通过';
+  await wait(900);
+  await wait(700);
+  addAgent(`<div class="doclink"><span class="di"></span><div><b>猎鱼达人3D 经营周报 · 10/05–10/11</b><small>飞书文档 · 刚刚生成</small></div><span class="btn">打开</span></div>`);
+  say('文档里的数字是此刻的快照，之后回看也对得上。');
+  await wait(2800);
+}
+async function chGen() {
+  say('先从零开始：在对话里说一句需求，生成一块看板。');
+  await wait(900);
+  await typeAndSend('做一个经营周报看板，周会用');
+  const st0 = addSteps(['理解需求 · 经营主题']);
+  await st0.run(0, 700);
+  const q = addAgent('<p>周会一般怎么对比？点一个就行：</p><div class="opts"><span class="opt2" data-o1>近 7 天 vs 前 7 天</span><span class="opt2">本周 vs 上周</span><span class="opt2">近 30 天 vs 前 30 天</span></div>');
+  say('需求有歧义时，AI 先给选项让你点，不用打字。');
+  await wait(1500);
+  const o1 = q.querySelector('[data-o1]');
+  await click(o1);
+  o1.classList.add('on'); q.querySelectorAll('.opt2').forEach((x) => { if (x !== o1) x.classList.add('off'); });
+  await wait(300);
+  addUser('近 7 天 vs 前 7 天');
+  const st = addSteps(['从指标目录选指标 · 9 项', '定图表与排版']);
+  await st.run(0, 900); await st.run(1, 800);
+  const sc = addAgent('<div class="scheme"><b>看板方案<em>可直接改</em></b></div>'), box0 = sc.querySelector('.scheme');
+  const scheme = [
+    ['', '指标卡', '<div class="chips"><i class="ck2 on">充值金额</i><i class="ck2 on">充值用户数</i><i class="ck2 on">活跃用户数</i><i class="ck2 on">红宝石产出</i><i class="ck2 add">＋ 付费率</i></div>'],
+    ['', '趋势', '<div>近 30 天充值金额 <i class="sel2">折线 ▾</i></div>'],
+    ['', '构成', '<div>分渠道充值 <i class="sel2" data-ct>柱状 ▾</i> · VIP 等级充值人数 <i class="sel2">柱状 ▾</i></div>'],
+    ['', '留存', '<div>新增用户留存 <i class="sel2">热力图 ▾</i></div>'],
+    [' gapr', '取不到', '<div>百度 / 360 投放 ROI：数仓没有投放消耗数据 <i class="lnk">发起补建 ›</i></div>'],
+  ];
+  say('先出方案：用哪些指标、画成什么图，哪些数取不到也提前说清。');
+  for (const [cls, k, v] of scheme) { box0.append(h('div', 'srow' + cls, `<span>${k}</span>${v}`)); scrollChat(); await wait(500); }
+  box0.insertAdjacentHTML('beforeend', '<div class="sact"><span class="btn primary" data-go>生成看板</span><span class="btn">重新出方案</span></div>');
+  scrollChat();
+  await wait(900);
+  say('方案里的每一项都能直接改：指标点一下勾选，图表类型点开就换。');
+  const ct = box0.querySelector('[data-ct]');
+  await click(ct);
+  const cr = rel(ct), dd0 = h('div', 'dropdown', '<span class="opt sel">柱状</span><span class="opt" data-bar>条形</span><span class="opt">饼图</span><span class="opt">折线</span>');
+  Object.assign(dd0.style, { left: cr.x + 'px', top: cr.y + cr.h + 4 + 'px', width: '120px' });
+  layer.append(dd0);
+  await wait(700);
+  const ob = dd0.querySelector('[data-bar]');
+  ob.classList.add('sel'); dd0.firstElementChild.classList.remove('sel');
+  await click(ob);
+  dd0.remove();
+  ct.textContent = '条形 ▾'; ct.classList.add('chg');
+  await wait(700);
+  const go = box0.querySelector('[data-go]');
+  await click(go);
+  go.textContent = '生成中…';
+  await wait(500);
+  setBoard('经营周报 · 周会', '草稿 · 未保存');
+  const order = ['kpiRev', 'kpiPay', 'kpiDau', 'kpiGem', 'trend', 'channel', 'tier', 'ret', 'gap'];
+  const pile = order.map((id, i) => ({ c: 1 + (i % 3) * 4, r: 1 + Math.floor(i / 3) * 3, w: 4, h: 3 }));
+  order.forEach((id, i) => { addCard(id, true); placeCard(id, pile[i]); });
+  say('再排版：指标卡置顶，趋势和构成放中间，留存、VIP 和缺口放到下面。');
+  await wait(1200);
+  await relayout(Object.fromEntries(order.map((id) => [id, LAYOUT[id]])), 1300);
+  await wait(800);
+  const plan = [
+    { q: '近 7 天充值 / 充值人数 / 活跃 / 红宝石产出', ids: ['kpiRev', 'kpiPay', 'kpiDau', 'kpiGem'], ms: 1400 },
+    { q: '近 30 天充值金额趋势', ids: ['trend'], ms: 1800 },
+    { q: '分渠道充值', ids: ['channel'], ms: 2100 },
+    { q: 'VIP 等级充值人数', ids: ['tier'], ms: 2400 },
+    { q: '新增用户留存矩阵', ids: ['ret'], ms: 2700 },
+    { q: '百度 / 360 投放 ROI', ids: ['gap'], ms: 3100, gap: true },
+  ];
+  const a = addAgent('<p>拆成 6 个子问题，并行取数：</p><div class="plan"></div>'), box = a.querySelector('.plan');
+  const els = plan.map((p) => { const e = h('div', 'prow', `<span class="pq">${p.q}</span><span class="ps">排队</span><div class="pbar"><i></i></div>`); box.append(e); return e; });
+  scrollChat();
+  say('然后取数：每张卡都走同一套口径，数据回来一张张画出来。');
+  await parallel(plan.map((p, i) => async () => {
+    await wait(i * 120);
+    els[i].querySelector('.ps').textContent = '取数中';
+    const bar = els[i].querySelector('.pbar i');
+    await tween(p.ms, (k) => { bar.style.width = (k * 100) + '%'; });
+    els[i].classList.add(p.gap ? 'gap' : 'ok'); els[i].querySelector('.ps').textContent = p.gap ? '缺口' : '完成';
+    await parallel(p.ids.map((id) => () => fillCard(id, p.gap ? 200 : 1100)));
+  }));
+  say('取不到的数，就说取不到：写清缺什么、去哪补，不拿别的数凑。');
+  await moveTo(cards.gap, 0, -20);
+  await hl(['gap'], 3200);
+  sc.querySelector('[data-go]').textContent = '已生成 ✓';
+  addAgent('<p>已生成 9 张卡片，其中 1 张是缺口。现在是草稿，点「保存」就会存进看板列表。接下来可以：</p><div class="sugg"><span>按渠道拆开看</span><span>加一张付费率卡片</span><span>换个主题</span></div>');
+  await wait(1200);
+}
+async function chSave() {
+  say('满意了就保存。保存的是每张卡片怎么取数，不是一张截图。');
+  await click($('#btnSave'));
+  const br = rel($('#board')), veil = h('div', 'modal-veil', `<div class="modal"><div class="mh">保存看板</div>
+    <div class="frow"><span>名称</span><div class="field">经营周报 · 周会</div></div>
+    <div class="frow"><span>保存到</span><div class="field">我的看板 ▾</div></div>
+    <div class="frow"><span>可见范围</span><div class="radios"><span><i></i>仅自己</span><span class="on"><i></i>项目内公开</span><span><i></i>指定人</span></div></div>
+    <div class="frow"><span>定时推送</span><div class="rule on"><i></i>每周一 09:00 推送到飞书「运营周会」</div></div>
+    <div class="frow"><span>异动提醒</span><div class="rule on"><i></i>指标跌出正常区间时提醒</div></div>
+    <div class="mnote">保存的是每张卡片的取数方式（参数化 SQL）和排版。打开时按当前口径重新取数，所以看到的总是最新的数。</div>
+    <div class="mfoot"><span class="btn">取消</span><span class="btn primary" data-save>保存</span></div></div>`);
+  Object.assign(veil.style, { left: br.x + 'px', top: br.y + 'px', width: br.w + 'px', height: br.h + 'px' });
+  layer.append(veil);
+  await wait(4200);
+  await click(veil.querySelector('[data-save]'));
+  veil.remove();
+  bump('v1');
+  const t = h('div', 'toast ok', '<span class="tapp"><i></i>智能看板</span><span>已保存「经营周报 · 周会」v1：项目内公开，每周一 09:00 推送。</span>');
+  hud.append(t);
+  $('#bgMine').textContent = '我的看板 · 3';
+  $('#biPayMeta').textContent = '9 张卡片 · 每周一 09:00 推送 · v1';
+  $('#biPay').hidden = false;
+  say('保存后它出现在看板列表里，带着推送时间和版本号。之后每次修改都会自动记一个新版本。');
+  await click($('#segList'));
+  showPane('list');
+  $('#biPay').classList.add('new');
+  await moveTo($('#biPay'), -40, 0);
+  await wait(3400);
+  t.remove();
+  $('#biPay').classList.remove('new');
+  await click($('#segChat'));
+  showPane('chat');
+  await wait(400);
+}
+function placeCard(id, p) { const c = cards[id]; c.style.gridColumn = `${p.c} / span ${p.w}`; c.style.gridRow = `${p.r} / span ${p.h}`; }
+function cellRect(p) {
+  const g = rel(grid), cw = (g.w - 11 * GAP) / 12;
+  return { x: g.x + (p.c - 1) * (cw + GAP), y: g.y + (p.r - 1) * (ROW_H + GAP), w: p.w * cw + (p.w - 1) * GAP, h: p.h * ROW_H + (p.h - 1) * GAP };
+}
+async function relayout(next, ms = 600) {
+  const ids = Object.keys(next), first = {}, last = {};
+  ids.forEach((id) => { first[id] = rel(cards[id]); });
+  ids.forEach((id) => { cards[id].style.transform = ''; placeCard(id, next[id]); });
+  ids.forEach((id) => { last[id] = rel(cards[id]); if (charts[id]) charts[id].resize(); });
+  await tween(ms, (k) => {
+    const e = ease(k);
+    ids.forEach((id) => {
+      const dx = (first[id].x - last[id].x) * (1 - e), dy = (first[id].y - last[id].y) * (1 - e);
+      cards[id].style.transform = k < 1 ? `translate(${dx}px, ${dy}px)` : '';
+    });
+  });
+}
+function callout(n, el, text, dx = 0, dy = 0) {
+  const r = rel(el), co = h('div', 'co', `<i>${n}</i><span>${text}</span>`);
+  co.style.left = r.x + dx + 'px'; co.style.top = r.y + dy + 'px';
+  layer.append(co);
+  return co;
+}
+function bump(ver) { setBoard('经营周报 · 周会', ver); const v = $('#ver'); v.classList.add('hl'); setTimeout(() => v.classList.remove('hl'), 900); }
+async function openMenu(id) {
+  const more = cards[id].querySelector('.more');
+  await click(more);
+  more.classList.add('on');
+  const r = rel(more), m = h('div', 'cmenu', '<span data-k="spec">查看口径与 SQL</span><span>换图表类型 <em>›</em></span><span>复制卡片</span><span>下载数据 CSV</span><span class="del" data-k="del">删除</span>');
+  m.style.left = r.x + r.w - 176 + 'px'; m.style.top = r.y + r.h + 4 + 'px';
+  layer.append(m);
+  return { m, close: () => { m.remove(); more.classList.remove('on'); } };
+}
+async function chTour() {
+  say('保存好了，再看看页面本身能做什么。');
+  await wait(600);
+  const marks = [
+    ['1', $('#ibox'), '对话：一句话生成和修改看板', 10, -30],
+    ['2', $('#segList'), '看板列表', 0, -26],
+    ['3', $('#fCmp'), '查询控件：时间、对比、渠道、VIP…', 0, -30],
+    ['4', $('#ver'), '版本：每次改动自动存', -70, -30],
+    ['5', cards.trend.querySelector('.cm'), '每张卡片都能看口径', -170, 24],
+    ['6', $('#btnAdd'), '添加卡片：说一句话或从指标目录选', -20, -30],
+  ];
+  const cos = [];
+  for (const [n, el, text, dx, dy] of marks) { cos.push(callout(n, el, text, dx, dy)); await wait(650); }
+  await wait(1600);
+  cos.forEach((c) => c.remove());
+
+  say('顶部的查询控件对整块看板生效：选好时间范围，点「查询」，所有卡片一起重算。');
+  await click($('#fPeriod'));
+  const pr = rel($('#fPeriod')), pd = h('div', 'dropdown', '<span class="opt sel">近 7 天</span><span class="opt" data-30>近 30 天</span><span class="opt">本月</span><span class="opt">自定义…</span>');
+  Object.assign(pd.style, { left: pr.x + 'px', top: pr.y + pr.h + 6 + 'px', width: '180px' });
+  layer.append(pd);
+  await wait(700);
+  const o30 = pd.querySelector('[data-30]');
+  o30.classList.add('sel'); pd.firstElementChild.classList.remove('sel');
+  await click(o30);
+  pd.remove();
+  $('#periodLabel').textContent = '近 30 天 · 09/12–10/11';
+  await wait(300);
+  await click($('#btnQuery'));
+  await refreshAll(() => setPeriod('30d'));
+  await moveTo(cards.kpiRev.querySelector('.kv'), 0, 30);
+  await wait(2600);
+
+  say('每张卡片都能查口径：来自指标库哪个指标、SQL 是什么、哪些参数跟着全局筛选走。');
+  let menu = await openMenu('trend');
+  await wait(500);
+  const specItem = menu.m.querySelector('[data-k="spec"]');
+  specItem.classList.add('on');
+  await click(specItem);
+  menu.close();
+  const tr = rel(cards.trend), spec = h('div', 'spec', `<h4>近 30 天充值金额 <em>口径与 SQL</em></h4>
+    <div class="kv2"><span>指标</span><b>充值金额 · 来自指标库</b><span>维度</span><b>日期</b><span>参数</span><b>统计周期 = 近 30 天（随全局筛选）</b><span>来源</span><b>v1 · 一句话生成后保存</b></div>
+    <div class="sqlbox"><span class="kw">SELECT</span> dt, <span class="kw">SUM</span>(pay_amount) <span class="kw">AS</span> 充值金额
+<span class="kw">FROM</span> demo_ads.ads_daily_report
+<span class="kw">WHERE</span> dt <span class="kw">BETWEEN</span> <span class="pm">:start</span> <span class="kw">AND</span> <span class="pm">:end</span>
+<span class="kw">GROUP BY</span> dt <span class="kw">ORDER BY</span> dt</div>
+    <div class="foot2">已过 SQL 校验链 · 08:50 更新 · 结果缓存 10 分钟</div>`);
+  spec.style.left = tr.x + tr.w - 430 + 'px'; spec.style.top = tr.y + 34 + 'px';
+  layer.append(spec);
+  await wait(800);
+  await wait(3200);
+  await wait(600);
+  spec.remove();
+
+  say('拖动卡片调整排版，落点吸附到栅格，周围的卡片自动让位。');
+  const card = cards.ret, tgtP = { c: 1, r: 7, w: 5, h: 4 };
+  await moveTo(card.querySelector('.ch'), -60, 0);
+  card.classList.add('lift');
+  const tgt = cellRect(tgtP), ph = h('div', 'dropph');
+  Object.assign(ph.style, { left: tgt.x + 'px', top: tgt.y + 'px', width: tgt.w + 'px', height: tgt.h + 'px' });
+  layer.append(ph);
+  await wait(250);
+  const cur = rel(card), dx = tgt.x - cur.x, dy = tgt.y - cur.y, fx = cx, fy = cy;
+  await tween(1000, (k) => { const e = ease(k); setCursor(fx + dx * e, fy + dy * e); card.style.transform = `translate(${dx * e}px, ${dy * e}px)`; });
+  ph.remove();
+  await relayout({ ret: tgtP, tier: { c: 6, r: 7, w: 4, h: 4 } }, 550);
+  card.classList.remove('lift');
+  bump('v2');
+  await wait(900);
+
+  say('不要的卡片可以删掉，删了也能从历史版本找回来。');
+  menu = await openMenu('tier');
+  await wait(400);
+  const del = menu.m.querySelector('[data-k="del"]');
+  await click(del);
+  del.className = 'confirm';
+  del.innerHTML = '删除「VIP 等级充值人数」？可从历史版本找回。<div><span class="btn">取消</span><span class="btn danger" data-ok>删除</span></div>';
+  await wait(700);
+  await click(del.querySelector('[data-ok]'));
+  menu.close();
+  const delCard = cards.tier;
+  await tween(350, (k) => { delCard.style.opacity = String(1 - k); });
+  delCard.remove(); delete cards.tier;
+  if (charts.tier) { charts.tier.dispose(); delete charts.tier; }
+  bump('v3');
+  await wait(500);
+
+  say('也能手动加卡片：在添加面板里直接说想看什么，AI 按指标库的口径生成一张卡片。');
+  await click($('#btnAdd'));
+  const br = rel($('#board')), dr = h('div', 'drawer', `<div class="dh2">添加卡片<em>✕</em></div>
+    <div class="dbody">
+      <div class="dtabs"><span class="on">AI 生成</span><span>指标目录</span></div>
+      <div class="aibox"><span class="ph" data-ph>说说想看什么，比如「最近 30 天破产用户的走势」</span><span data-txt></span><span class="caret"></span></div>
+      <div class="aigo"><span class="btn primary" data-gen>生成</span></div>
+      <div data-res></div>
+    </div>
+    <div class="dfoot"><span class="btn">取消</span><span class="btn primary" data-add>添加到看板</span></div>`);
+  Object.assign(dr.style, { left: br.x + br.w - 360 + 'px', top: br.y + 'px', height: br.h + 'px' });
+  layer.append(dr);
+  await wait(700);
+  const box2 = dr.querySelector('.aibox'), txt = dr.querySelector('[data-txt]'), ask = '看看最近 30 天破产用户的走势';
+  await click(box2);
+  dr.querySelector('[data-ph]').hidden = true;
+  await tween(ask.length * 70, (k) => { txt.textContent = ask.slice(0, Math.round(k * ask.length)); });
+  await wait(300);
+  await click(dr.querySelector('[data-gen]'));
+  const res = dr.querySelector('[data-res]');
+  const rows = [
+    '匹配指标：破产用户数 <em>· 来自指标库</em>',
+    '维度：日期（按天）',
+    '图表：折线图 <em>· 时间跟随看板</em>',
+  ];
+  for (const r of rows) { res.insertAdjacentHTML('beforeend', `<div class="airow"><i class="ck"></i><span>${r}</span></div>`); await wait(550); }
+  res.insertAdjacentHTML('beforeend', '<div class="pv"></div><div class="ainote">想精确挑指标，可以切到「指标目录」页签。</div>');
+  const pv = res.querySelector('.pv'), pvBox = h('div', 'chart'); pv.append(pvBox);
+  const pc = chartIn('bankpv', pvBox); if (pc) { pc.setOption(bankOption(1), true); pc.resize(); }
+  await wait(3000);
+  await click(dr.querySelector('[data-add]'));
+  if (charts.bankpv) { charts.bankpv.dispose(); delete charts.bankpv; }
+  dr.remove();
+  addCard('bank', true);
+  await fillCard('bank', 900);
+  bump('v4');
+  await hl(['bank'], 1500);
+
+  say('拖拽、删除、添加，每一步都自动存一个版本，随时能回到之前的样子。');
+  await click($('#ver'));
+  const vr = rel($('#ver')), dd = h('div', 'dropdown', `<div class="dh">历史版本</div>
+    <div class="vrow cur"><b>v4</b><span>添加卡片：破产用户数<small>刚刚 · 吉云飞</small></span><span></span></div>
+    <div class="vrow"><b>v3</b><span>删除卡片：VIP 等级充值人数<small>刚刚 · 吉云飞</small></span><span class="btn">恢复</span></div>
+    <div class="vrow"><b>v2</b><span>调整排版<small>刚刚 · 吉云飞</small></span><span></span></div>
+    <div class="vrow"><b>v1</b><span>一句话生成后保存<small>刚刚 · 吉云飞</small></span><span></span></div>`);
+  dd.style.left = vr.x + 'px'; dd.style.top = vr.y + vr.h + 6 + 'px';
+  layer.append(dd);
+  await wait(3000);
+  dd.remove();
+}
+// 背景动画：定时器驱动（嵌入页里逐帧回调可能被节流），暂停时不动
+const fx = { cv: null, ctx: null, theme: '', t: 0, timer: null, storm: 1, stormTarget: 1, items: null, bursts: [], last: -1 };
+function fxStart(theme) {
+  fx.cv = $('#bgfx'); fx.ctx = fx.cv.getContext('2d');
+  const b = $('#board'); fx.cv.width = b.clientWidth; fx.cv.height = b.clientHeight;
+  fx.theme = theme; fx.t = 0; fx.bursts = []; fx.last = -1;
+  const r = rng(99), w = fx.cv.width, hh = fx.cv.height;
+  fx.items = {
+    fish: Array.from({ length: 8 }, (_, i) => ({ x: r() * w, y: hh * (0.18 + r() * 0.66), v: (16 + r() * 24) * (r() < 0.5 ? -1 : 1), s: 0.7 + r() * 0.8, c: i % 3 })),
+    bub: Array.from({ length: 28 }, () => ({ x: r() * w, y: r() * hh, v: 14 + r() * 26, rr: 1.5 + r() * 3.5 })),
+    blip: Array.from({ length: 14 }, () => ({ a: Math.PI * (1.06 + r() * 0.88), d: 0.25 + r() * 0.7 })),
+    drops: Array.from({ length: 150 }, () => ({ x: r() * w, y: r() * hh, l: 8 + r() * 10 })),
+    coins: Array.from({ length: 16 }, () => ({ x: r() * w, y: r() * hh, v: 12 + r() * 20, rr: 4 + r() * 5, ph: r() * 6 })),
+    stars: Array.from({ length: 30 }, () => ({ x: r() * w, y: r() * hh, ph: r() * 6, rr: 2 + r() * 4 })),
+    petals: Array.from({ length: 16 }, () => ({ x: r() * w, y: r() * hh, v: 14 + r() * 18, ph: r() * 6 })),
+  };
+  fx.cv.hidden = false;
+  if (!fx.timer) fx.timer = setInterval(() => fxTick(false), 33);
+  fxTick(true);
+}
+function fxStop() { clearInterval(fx.timer); fx.timer = null; fx.theme = ''; const cv = $('#bgfx'); if (cv) cv.hidden = true; }
+function fxTick(force) {
+  if (!fx.theme || !DRAW[fx.theme]) return;
+  if (!force && paused && started) return;
+  fx.t += 0.033;
+  fx.storm += (fx.stormTarget - fx.storm) * 0.035;
+  const c = fx.ctx, w = fx.cv.width, hh = fx.cv.height;
+  c.clearRect(0, 0, w, hh);
+  DRAW[fx.theme](c, w, hh, fx.t);
+}
+function drawFish(c, x, y, s, dir, col, ph) {
+  c.save(); c.translate(x, y); c.scale(dir * s, s); c.fillStyle = col;
+  c.beginPath(); c.ellipse(0, 0, 18, 8, 0, 0, Math.PI * 2); c.fill();
+  const tw = Math.sin(ph * 6) * 3;
+  c.beginPath(); c.moveTo(-15, 0); c.lineTo(-28, -8 + tw); c.lineTo(-28, 8 + tw); c.closePath(); c.fill();
+  c.fillStyle = 'rgba(0,0,0,.55)'; c.beginPath(); c.arc(10, -2, 1.8, 0, Math.PI * 2); c.fill(); c.restore();
+}
+function swim(c, w, t, cols, scale = 1) {
+  fx.items.fish.forEach((f, i) => {
+    let x = (f.x + f.v * t) % (w + 120); if (x < 0) x += w + 120; x -= 60;
+    drawFish(c, x, f.y + Math.sin(t * 1.4 + i) * 8, f.s * scale, f.v > 0 ? 1 : -1, cols[f.c], t + i);
+  });
+}
+function bubbles(c, hh, t, col) {
+  c.strokeStyle = col; c.lineWidth = 1;
+  fx.items.bub.forEach((b) => { let y = (b.y - b.v * t) % hh; if (y < 0) y += hh; c.beginPath(); c.arc(b.x + Math.sin(t * 2 + b.x) * 3, y, b.rr, 0, Math.PI * 2); c.stroke(); });
+}
+function cloud(c, x, y, k) {
+  c.fillStyle = mixHex('#ffffff', '#2a3140', fx.storm); c.globalAlpha = 0.85;
+  c.beginPath(); c.ellipse(x, y, 60 * k, 18 * k, 0, 0, Math.PI * 2); c.ellipse(x + 40 * k, y - 10 * k, 40 * k, 20 * k, 0, 0, Math.PI * 2); c.ellipse(x - 35 * k, y - 6 * k, 34 * k, 16 * k, 0, 0, Math.PI * 2); c.fill();
+  c.globalAlpha = 1;
+}
+const DRAW = {
+  tank(c, w, hh, t) {
+    for (let i = 0; i < 5; i++) {
+      const x = w * (0.08 + i * 0.21) + Math.sin(t * 0.4 + i) * 40, gr = c.createLinearGradient(0, 0, 0, hh * 0.8);
+      gr.addColorStop(0, 'rgba(210,255,255,0.14)'); gr.addColorStop(1, 'rgba(210,255,255,0)');
+      c.fillStyle = gr; c.beginPath(); c.moveTo(x - 30, 0); c.lineTo(x + 30, 0); c.lineTo(x + 120, hh * 0.8); c.lineTo(x - 10, hh * 0.8); c.closePath(); c.fill();
+    }
+    c.strokeStyle = 'rgba(220,255,255,0.12)'; c.lineWidth = 3;
+    for (let k = 0; k < 5; k++) { c.beginPath(); for (let x = 0; x <= w; x += 16) { const y = 16 + k * 20 + Math.sin(x * 0.02 + t * 1.6 + k * 1.7) * 7 + Math.sin(x * 0.051 - t * 1.1) * 4; if (x) c.lineTo(x, y); else c.moveTo(x, y); } c.stroke(); }
+    swim(c, w, t, ['rgba(255,176,98,.9)', 'rgba(127,227,255,.88)', 'rgba(255,120,150,.88)']);
+    bubbles(c, hh, t, 'rgba(220,255,255,0.6)');
+  },
+  sonar(c, w, hh, t) {
+    c.fillStyle = '#021510'; c.fillRect(0, 0, w, hh);
+    const cx = w / 2, cy = hh * 1.02, R = Math.hypot(w / 2, hh);
+    c.strokeStyle = 'rgba(80,255,170,0.16)'; c.lineWidth = 1;
+    for (let r = 90; r < R; r += 90) { c.beginPath(); c.arc(cx, cy, r, Math.PI, 2 * Math.PI); c.stroke(); }
+    for (let k = 0; k <= 12; k++) { const a = Math.PI + k * Math.PI / 12; c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); c.stroke(); }
+    const a = Math.PI + (0.5 - 0.5 * Math.cos(t * 0.8)) * Math.PI, dir = Math.sin(t * 0.8) >= 0 ? 1 : -1;
+    for (let i = 0; i < 26; i++) {
+      const a0 = a - dir * i * 0.02;
+      c.fillStyle = `rgba(93,255,176,${0.28 * (1 - i / 26)})`;
+      c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R, Math.min(a0, a0 - dir * 0.02), Math.max(a0, a0 - dir * 0.02)); c.closePath(); c.fill();
+    }
+    fx.items.blip.forEach((b) => {
+      const diff = Math.abs(a - b.a), k = Math.max(0, 1 - diff / 0.7), d = b.d * R * 0.85;
+      const x = cx + Math.cos(b.a) * d, y = cy + Math.sin(b.a) * d;
+      c.fillStyle = `rgba(140,255,200,${0.12 + k * 0.88})`; c.beginPath(); c.arc(x, y, 2.5 + k * 4, 0, Math.PI * 2); c.fill();
+    });
+    c.fillStyle = 'rgba(120,255,190,.45)'; c.font = '11px JetBrains Mono, monospace';
+    for (let r = 90, m = 30; r < R; r += 90, m += 30) c.fillText(`-${m}m`, cx - r + 4, cy - 8);
+  },
+  arcade(c, w, hh, t) {
+    const g = c.createRadialGradient(w / 2, hh * 0.35, 20, w / 2, hh * 0.35, Math.max(w, hh) * 0.8);
+    g.addColorStop(0, '#3a1470'); g.addColorStop(1, '#0c0418'); c.fillStyle = g; c.fillRect(0, 0, w, hh);
+    const hz = hh * 0.6;
+    const sg = c.createLinearGradient(0, hz - 130, 0, hz); sg.addColorStop(0, '#ffd23f'); sg.addColorStop(1, '#ff3fb4');
+    c.fillStyle = sg; c.beginPath(); c.arc(w / 2, hz, 120, Math.PI, 2 * Math.PI); c.fill();
+    c.fillStyle = '#16072b'; for (let j = 0; j < 6; j++) c.fillRect(w / 2 - 130, hz - 14 - j * 17, 260, 3 + j * 0.7);
+    c.strokeStyle = 'rgba(255,63,180,0.45)'; c.lineWidth = 1.2;
+    for (let i = 0; i < 14; i++) { const p = (i + (t * 0.8) % 1) / 14, y = hz + (hh - hz) * p * p; c.beginPath(); c.moveTo(0, y); c.lineTo(w, y); c.stroke(); }
+    for (let k = -12; k <= 12; k++) { c.beginPath(); c.moveTo(w / 2 + k * 12, hz); c.lineTo(w / 2 + k * 90, hh); c.stroke(); }
+    let idx = 0; const lit = Math.floor(t * 8);
+    const bulb = (x, y) => { const on = (idx + lit) % 3 === 0; c.fillStyle = on ? '#ffd23f' : 'rgba(255,210,63,0.2)'; c.shadowColor = '#ffd23f'; c.shadowBlur = on ? 8 : 0; c.beginPath(); c.arc(x, y, 3, 0, Math.PI * 2); c.fill(); idx++; };
+    for (let x = 6; x < w - 6; x += 22) bulb(x, 5);
+    for (let y = 6; y < hh - 6; y += 22) bulb(w - 5, y);
+    for (let x = w - 6; x > 6; x -= 22) bulb(x, hh - 5);
+    for (let y = hh - 6; y > 6; y -= 22) bulb(5, y);
+    c.shadowBlur = 0;
+  },
+  link(c, w, hh, t) {
+    fx.items.stars.forEach((s) => {
+      const y = (s.y - t * (10 + s.rr * 4)) % hh, yy = y < 0 ? y + hh : y, k = 0.5 + 0.5 * Math.sin(t * 2 + s.ph);
+      c.fillStyle = `rgba(255,214,110,${0.25 + k * 0.6})`; c.beginPath(); c.arc(s.x + Math.sin(t + s.ph) * 12, yy, 1.2 + s.rr * 0.35, 0, Math.PI * 2); c.fill();
+    });
+  },
+  anime(c, w, hh, t) {
+    fx.items.stars.forEach((s) => {
+      const k = 0.5 + 0.5 * Math.sin(t * 2.2 + s.ph); c.fillStyle = `rgba(255,255,255,${0.25 + k * 0.7})`;
+      c.save(); c.translate(s.x, s.y); c.rotate(t * 0.5 + s.ph); c.beginPath();
+      for (let i = 0; i < 8; i++) { const r2 = i % 2 ? s.rr * 0.25 : s.rr * (0.6 + k * 0.6); c.lineTo(Math.cos(i * Math.PI / 4) * r2, Math.sin(i * Math.PI / 4) * r2); }
+      c.closePath(); c.fill(); c.restore();
+    });
+    fx.items.petals.forEach((p) => {
+      const y = (p.y + p.v * t) % hh, x = (p.x + Math.sin(t + p.ph) * 30 + t * 12) % w;
+      c.save(); c.translate(x, y); c.rotate(t * 1.5 + p.ph); c.fillStyle = 'rgba(255,170,205,.85)'; c.beginPath(); c.ellipse(0, 0, 6, 3.5, 0, 0, Math.PI * 2); c.fill(); c.restore();
+    });
+  },
+  fest(c, w, hh, t) {
+    if (t - fx.last > 0.85) {
+      fx.last = t; const r = Math.random, bx = w * (0.12 + r() * 0.76), by = hh * (0.1 + r() * 0.35);
+      const col = ['#f5c46b', '#ff6b4a', '#fff3dc', '#ffd23f'][Math.floor(r() * 4)], ps = [];
+      for (let i = 0; i < 44; i++) { const a = i / 44 * Math.PI * 2, sp = 60 + r() * 55; ps.push({ vx: Math.cos(a) * sp, vy: Math.sin(a) * sp }); }
+      fx.bursts.push({ bx, by, ps, col, born: t });
+    }
+    fx.bursts = fx.bursts.filter((b) => t - b.born < 1.8);
+    fx.bursts.forEach((b) => {
+      const age = t - b.born; c.fillStyle = b.col; c.globalAlpha = Math.max(0, 1 - age / 1.8);
+      b.ps.forEach((q) => { c.beginPath(); c.arc(b.bx + q.vx * age, b.by + q.vy * age + 40 * age * age, 2.2, 0, Math.PI * 2); c.fill(); });
+      c.globalAlpha = 1;
+    });
+  },
+  weather(c, w, hh, t) {
+    const s = fx.storm, g = c.createLinearGradient(0, 0, 0, hh * 0.5);
+    g.addColorStop(0, mixHex('#6fbfe9', '#1b2230', s)); g.addColorStop(1, mixHex('#d6f0ff', '#3b4656', s));
+    c.fillStyle = g; c.fillRect(0, 0, w, hh);
+    if (s < 0.6) { c.fillStyle = `rgba(255,236,170,${0.95 * (1 - s / 0.6)})`; c.beginPath(); c.arc(w * 0.84, hh * 0.13, 34, 0, Math.PI * 2); c.fill(); }
+    for (let i = 0; i < 6; i++) cloud(c, ((i * 170 + t * (8 + s * 34)) % (w + 220)) - 110, hh * (0.06 + (i % 3) * 0.07), 1 + (i % 2) * 0.4);
+    const hz = hh * 0.42;
+    for (let L = 0; L < 5; L++) {
+      const base = hz + L * (hh - hz) / 5, amp = (3 + s * 16) * (1 + L * 0.35), spd = 0.6 + s * 2.2;
+      c.fillStyle = mixHex(mixHex('#3fa9dc', '#24465c', s), mixHex('#0f5f8c', '#0e2230', s), L / 4);
+      c.beginPath(); c.moveTo(0, hh);
+      for (let x = 0; x <= w; x += 12) c.lineTo(x, base + Math.sin(x * 0.012 * (1 + L * 0.25) + t * spd + L * 1.3) * amp + Math.sin(x * 0.031 - t * spd * 0.7) * amp * 0.35);
+      c.lineTo(w, hh); c.closePath(); c.fill();
+    }
+    if (s > 0.35) {
+      c.strokeStyle = `rgba(210,225,240,${(s - 0.35) * 0.7})`; c.lineWidth = 1; c.beginPath();
+      fx.items.drops.forEach((d) => { const y = (d.y + t * 520) % hh, x = (d.x + t * 120) % w; c.moveTo(x, y); c.lineTo(x - 3, y + d.l); });
+      c.stroke();
+    }
+    if (s > 0.8 && Math.sin(t * 1.7) > 0.993) { c.fillStyle = 'rgba(255,255,255,0.35)'; c.fillRect(0, 0, w, hh); }
+  },
+  brand(c, w, hh, t) {
+    const gl = c.createRadialGradient(w * 0.82, hh * 0.12, 10, w * 0.82, hh * 0.12, 200);
+    gl.addColorStop(0, 'rgba(255,214,120,0.45)'); gl.addColorStop(1, 'rgba(255,214,120,0)'); c.fillStyle = gl; c.fillRect(0, 0, w, hh);
+    fx.items.coins.forEach((k) => {
+      const y = (k.y + k.v * t) % (hh + 20) - 10, sx = Math.abs(Math.cos(t * 2 + k.ph));
+      c.save(); c.translate(k.x, y); c.scale(Math.max(0.15, sx), 1);
+      const cg = c.createRadialGradient(-k.rr * 0.3, -k.rr * 0.3, 1, 0, 0, k.rr); cg.addColorStop(0, '#fff0b0'); cg.addColorStop(1, '#e09a1a');
+      c.fillStyle = cg; c.beginPath(); c.arc(0, 0, k.rr, 0, Math.PI * 2); c.fill(); c.restore();
+    });
+    bubbles(c, hh, t, 'rgba(220,245,255,0.45)');
+  },
+};
+const FX_THEMES = ['tank', 'sonar', 'arcade', 'anime', 'fest', 'weather', 'brand', 'link'];
+let spotTimer = null;
+function stopSpot() { clearInterval(spotTimer); spotTimer = null; Object.values(cards).forEach((c) => c.classList.remove('spot')); }
+function startSpot() {
+  stopSpot();
+  const ids = Object.keys(cards); let i = 0;
+  $('#board').classList.add('spotting');
+  const tick = () => {
+    Object.values(cards).forEach((c) => c.classList.remove('spot'));
+    const c = cards[ids[i % ids.length]]; if (c) c.classList.add('spot');
+    const sec = 5 + i * 2; $('#tBadge').textContent = `大屏模式 · 轮播中 · 10:12:${String(sec % 60).padStart(2, '0')}`;
+    i++;
+  };
+  tick();
+  spotTimer = setInterval(() => { if (!(paused && started)) tick(); }, 2000);
+}
+function applyTheme(th, badge) {
+  stopSpot();
+  $('#board').className = 'board' + (th ? ' th-' + th : '');
+  if (FX_THEMES.includes(th)) fxStart(th); else fxStop();
+  const b = $('#tBadge'); b.hidden = !badge; b.textContent = badge || '';
+  Object.keys(cards).forEach(renderCard);
+}
+async function chTheme() {
+  layer.querySelectorAll('.docpanel').forEach((e) => e.remove());
+  if (charts.doc) { charts.doc.dispose(); delete charts.doc; }
+  state.alert = false; if (cards.kpiRev) { cards.kpiRev.classList.remove('alert'); renderCard('kpiRev'); }
+  say('最后是表达：先是三套常规主题，再是我们自己的——二次元、海底声呐、活动和联动皮肤、游戏 HUD、AI 生成的游戏同款，最后是大屏轮播。');
+  await click($('#btnTheme'));
+  const tiles = [
+    ['', '默认', '常规 · 浅色', 'linear-gradient(135deg,#f0f2f5,#ffffff)'],
+    ['dark', '深色', '常规 · 夜间与大屏', 'linear-gradient(135deg,#0f1218,#1d232c)'],
+    ['biz', '商务蓝', '常规 · 汇报', 'linear-gradient(#1d3a7a 0 30%, #eef0f4 30%)'],
+    ['anime', '二次元', '跟玩家走 · 角色会读数据', '#e8eefc url(img/anime.jpg) center/cover'],
+    ['sonar', '海底声呐', '跟游戏走', 'repeating-radial-gradient(circle at 50% 120%, #032015 0 9px, #0d4a33 9px 10px)'],
+    ['fest', '活动皮肤', '跟运营走 · 自动切换', '#5a0b0b url(img/fest.jpg) center/cover'],
+    ['link', '联动皮肤', '跟运营走 · 联动版本', '#2a0b33 url(img/link.jpg) center/cover'],
+    ['hud', '游戏 HUD', '跟游戏走 · 游戏 UI 同款', '#06305a url(img/hud.jpg) center/cover'],
+    ['brand', '游戏同款', 'AI 生成 · 可描述风格', '#032a4a url(img/brand.jpg) center/cover'],
+    ['screen', '大屏轮播', '跟场景走 · 会议室投屏', 'radial-gradient(ellipse at 50% 0%, #102a5c, #050b1d 70%)'],
+    ['more', '更多主题', '水族箱 · 街机厅 · 看板天气…', 'repeating-linear-gradient(45deg,#f5f7fa 0 6px,#e9edf3 6px 12px)'],
+  ];
+  const cr = rel($('.chat')), dr = h('div', 'drawer', `<div class="dh2">主题与动态组件<em>✕</em></div>
+    <div class="dbody">
+      <div class="dtabs"><span class="on" data-tab-th>主题</span><span data-tab-dyn>动态组件</span></div>
+      <div data-pane-th><div class="thgrid">${tiles.map(([k, n, tag, bg]) => `<div class="tile${k === '' ? ' on' : ''}" data-th="${k}"><div class="sw" style="background:${bg}"></div>${n}<small>${tag}</small></div>`).join('')}</div><div data-extra style="margin-top:10px"></div></div>
+      <div data-pane-dyn hidden></div>
+    </div>`);
+  Object.assign(dr.style, { left: cr.x + 'px', top: cr.y + 'px', height: cr.h + 'px', width: cr.w + 'px', borderRadius: '8px' });
+  layer.append(dr);
+  await wait(1200);
+  const pick = async (k) => {
+    const tile = dr.querySelector(`[data-th="${k}"]`);
+    await click(tile);
+    dr.querySelectorAll('.tile').forEach((x) => x.classList.toggle('on', x === tile));
+  };
+  const extra = dr.querySelector('[data-extra]');
+  const looks = [
+    ['dark', '', '深色：夜间和投大屏用。', 2200],
+    ['biz', '', '商务蓝：给老板汇报用，稳重克制。', 2200],
+    ['anime', '', '二次元：角色站在看板一角，还会把今天要留意的数念给你听。', 5200],
+    ['sonar', '', '海底声呐：扫描线来回扫，回波一个个亮起来，像在海里找鱼群。', 3800],
+    ['fest', '国庆活动皮肤 · 运营事件表', '活动皮肤：读运营事件表，国庆活动期间自动换上，活动结束自动换回。', 4200],
+    ['link', '大话西游联动皮肤 · 运营事件表', '联动皮肤：联动版本上线那几天，看板自动换成联动画风，版本结束换回。', 4200],
+    ['hud', '游戏 HUD 同款', '游戏 HUD：卡片做成游戏里的面板，金边框、金币计数、游戏按钮，策划和运营一眼就熟。', 4400],
+  ];
+  for (const [k, badge, line, ms] of looks) { await pick(k); applyTheme(k, badge); say(line); await wait(ms); }
+
+  await pick('brand');
+  extra.innerHTML = `<div class="cust"><div class="aibox" data-box><span class="ph" data-ph>描述想要的风格，也可以附上游戏主视觉</span><span data-txt></span></div>
+    <div class="keyart"><div class="ka" style="background:#032a4a url(img/brand.jpg) center/cover"></div><div><b>猎鱼达人3D_主视觉.png</b><small>已附加 · AI 会参考它的配色和元素</small></div></div>
+    <span class="btn primary" data-extract style="align-self:flex-start">生成主题</span><div data-steps></div><div data-pal></div></div>`;
+  say('游戏同款：用一句话描述想要的风格，附上主视觉，AI 生成这个项目独有的皮肤。');
+  await wait(900);
+  const box3 = extra.querySelector('[data-box]'), txt3 = extra.querySelector('[data-txt]');
+  const ask3 = '按主视觉来，金币和大鱼要显眼，整体明亮一点，卡片做成半透明';
+  await click(box3);
+  extra.querySelector('[data-ph]').hidden = true;
+  await tween(ask3.length * 60, (k) => { txt3.textContent = ask3.slice(0, Math.round(k * ask3.length)); });
+  await wait(300);
+  const ex = extra.querySelector('[data-extract]');
+  await click(ex);
+  ex.textContent = '生成中…';
+  const stp = extra.querySelector('[data-steps]');
+  for (const line of ['提取主视觉配色 · 5 色', '生成背景与装饰：金币、浪花、大鱼', '生成卡片样式：半透明 · 金色描边']) {
+    stp.insertAdjacentHTML('beforeend', `<div class="airow"><i class="ck"></i><span>${line}</span></div>`);
+    await wait(650);
+  }
+  ex.textContent = '已生成 ✓';
+  extra.querySelector('[data-pal]').innerHTML = '<div class="pal"><i style="background:#2f8fe0"></i><i style="background:#0f4f9e"></i><i style="background:#ffc23a"></i><i style="background:#ff7a2f"></i><i style="background:#e8f6ff"></i><span>天空蓝 · 海水蓝 · 金币黄 · 珊瑚橙 · 浪花白</span></div>';
+  applyTheme('brand', '游戏同款 · AI 生成');
+  setBoard('经营周报 · 周会', 'v5');
+  await wait(3600);
+
+  say('再加点动态组件：数字实时翻牌、目标完成率水波球、渠道排行按天自动排序。');
+  const tabDyn = dr.querySelector('[data-tab-dyn]');
+  await click(tabDyn);
+  dr.querySelector('[data-tab-th]').classList.remove('on'); tabDyn.classList.add('on');
+  dr.querySelector('[data-pane-th]').hidden = true;
+  const pane = dr.querySelector('[data-pane-dyn]');
+  pane.hidden = false;
+  pane.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px">
+    <div class="dyn" data-d="live"><i class="dic flip"></i><div><b>数字翻牌</b><small>数值实时滚动，适合大屏</small></div><em></em></div>
+    <div class="dyn" data-d="gauge"><i class="dic liq"></i><div><b>水波球</b><small>目标完成率</small></div><em></em></div>
+    <div class="dyn" data-d="race"><i class="dic race"></i><div><b>排行榜动画</b><small>按天自动排序</small></div><em></em></div>
+    <div class="dyn"><i class="dic marq"></i><div><b>跑马灯</b><small>滚动播报运营事件</small></div><em></em></div>
+    <div class="dyn"><i class="dic fish"></i><div><b>鱼群背景</b><small>捕鱼项目专属装饰</small></div><em></em></div></div>`;
+  state.dyn = {};
+  startLive();
+  const addDyn = async (key, apply, cardId) => {
+    const it = pane.querySelector(`[data-d="${key}"]`);
+    await click(it);
+    it.classList.add('on'); it.querySelector('em').textContent = '已添加';
+    apply(); renderCard(cardId);
+    await hl([cardId], 1600);
+  };
+  await addDyn('live', () => { state.dyn.live = KPI.all.cur.rev; }, 'kpiRev');
+  await addDyn('gauge', () => { state.dyn.gauge = true; }, 'kpiGem');
+  await addDyn('race', () => { state.dyn.race = 30; }, 'channel');
+  setBoard('经营周报 · 周会', 'v6');
+  dr.remove();
+  say('最后切到大屏轮播：投到会议室，卡片轮流放大，数字实时在跳，排行榜按天滚动。');
+  applyTheme('screen', '大屏模式 · 轮播中');
+  startSpot();
+  await moveXY(1380, 760);
+  await wait(4200);
+  say('排行榜里能看到：10/09 之后顺网网吧掉了名次，和前面的异动对得上。');
+  await wait(4600);
+  stopSpot();
+}
+async function ch6() {
+  const ov = h('div', 'overlay', `<div class="endcard"><h3>从一句话生成，到一直盯着它</h3>
+    <div class="three">
+      <div><b>和问数同一个口径</b><span>卡片存的是走过指标库和校验链的 SQL，看板上的数和问出来的数一致。</span></div>
+      <div><b>取不到的不编</b><span>缺字段、缺口径就标成缺口，写清怎么补，推演一律虚线并写明假设。</span></div>
+      <div><b>有自己的风格</b><span>除了常规主题，还有角色会读数据的二次元、海底声呐、跟着运营事件自动换的活动皮肤，以及 AI 按描述生成的游戏同款。</span></div>
+      <div><b>长在飞书和问数里</b><span>异动推到群里，追问接着问数，周会文档一句话生成，链接带快照。</span></div>
+    </div>
+    <div class="flow">一句话生成 → 保存 → 手动调整 → 异动报警 → 联动归因 → 推演 → 出文档 → 换主题</div>
+    <div class="foot">名称取自猎鱼达人3D，画面中的全部数字均为演示虚构。</div></div>`);
+  hud.append(ov);
+  say('我们的目标，就是做成这样。');
+  await wait(5000);
+}
+const CH = [
+  { t: '一句话生成看板', d: '对话里说一句需求：AI 给选项澄清，出一份可直接改的方案（勾指标、换图表），确认后自动排版、并行取数，取不到的标成缺口。', p: '一句话生成 · 自动排版', fn: chGen },
+  { t: '保存看板', d: '起名、选可见范围、设定时推送和异动提醒；保存后出现在看板列表，记为 v1。', p: '看板存储 · 看板列表 · 版本', fn: chSave },
+  { t: '看板页面一览', d: '页面布局、卡片口径与 SQL、拖拽排版、删除卡片、用一句话让 AI 生成新卡片，每步存版本。', p: '看板页面 · 指标目录 · 版本', fn: chTour },
+  { t: '一周后：异动找上门', d: '周一 08:50，飞书和对话里收到充值异动提醒；从看板列表打开保存过的看板，异动卡片已标红。', p: '定时推送 · 异动提醒', fn: ch1 },
+  { t: '点一下，整板联动', d: '点顺网网吧整板过滤；追问后先剔除国庆回落，再定位到版本更新后进不了大厅。', p: '联动下钻 · 追问复用问数链路 · 对照运营事件表', fn: ch2 },
+  { t: '如果明天修好呢', d: '拖滑块改假设，预测线实时重算，推演一律虚线。', p: '推演', fn: ch3 },
+  { t: '一句话出周会文档', d: '结论区分预期内和异常，图、出处、缺口写进飞书文档。', p: '复用飞书文档交付链路', fn: ch4 },
+  { t: '主题与动态组件', d: '常规的默认、深色、商务蓝；特色的二次元（角色会读数据）、海底声呐、活动皮肤与联动皮肤（随运营事件自动切换）、游戏 HUD 同款、游戏同款（描述风格 + 主视觉，AI 生成）；加数字翻牌、水波球、排行榜动画后，切到大屏轮播。', p: '主题风格 · 动态组件（差异化）', fn: chTheme },
+  { t: '收尾', d: '从一句话生成，到保存、调整、异动解读、出文档和换主题。', p: '', fn: ch6 },
+];
+
+/* ---------------- 运行控制 ---------------- */
+function reset() {
+  Object.values(charts).forEach((c) => c.dispose()); charts = {}; cards = {};
+  msgs.innerHTML = '<div class="hello">你好。可以直接问数，也可以让我搭看板、改看板。</div>'; turn = null;
+  grid.innerHTML = ''; layer.innerHTML = ''; hud.innerHTML = '';
+  clearInterval(liveTimer); fxStop(); stopSpot(); $('#tBadge').hidden = true;
+  state = { ch: null, alert: false, whatif: null, draw: {}, period: '7d', dyn: null };
+  $('#board').className = 'board';
+  setPeriod('7d');
+  setChannel(null); setBoard('', ''); $('#empty').hidden = false;
+  $('#inputText').textContent = ''; $('#ph').hidden = false; $('#ibox').classList.remove('focus');
+  $('#biPay').classList.remove('sel', 'hover', 'new'); $('#biPay').hidden = true; $('#bgMine').textContent = '我的看板 · 2'; $('#biPaySt').className = 'st sub'; $('#biPaySt').textContent = '订阅中';
+  cam.classList.remove('rewind');
+  showPane('chat'); setCam(1, 0, 0); setCursor(1200, 700);
+}
+function showTag(i) {
+  const tag = h('div', 'chtag', `<span class="tn2">${String(i + 1).padStart(2, '0')}</span>${CH[i].t}`);
+  hud.append(tag);
+  setTimeout(() => tag.remove(), 2700);
+}
+async function run(from, measure) {
+  const my = ++runId;
+  reset(); vt = 0; ended = false;
+  try {
+    for (let i = 0; i < CH.length; i++) {
+      fast = measure || i < from;
+      stage.classList.toggle('ff', fast);
+      curChap = i; chapStarts[i] = vt;
+      if (!fast) showTag(i);
+      await CH[i].fn();
+      if (my !== runId) return;
+    }
+    if (measure) { total = vt; return; }
+    ended = true; paused = true; syncButtons();
+  } catch (e) {
+    if (e !== ABORT) console.error(e);
+  } finally {
+    if (my === runId) { fast = false; stage.classList.remove('ff'); }
+  }
+}
+function fmtT(ms) { const s = Math.round(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function syncButtons() {
+  const b = $('#playBtn');
+  b.textContent = ended ? '↺ 重播' : paused ? '▶ 播放' : '❚❚ 暂停';
+  b.setAttribute('aria-label', ended ? '重播' : paused ? '播放' : '暂停');
+  stage.classList.toggle('paused', paused && !ended);
+}
+function play(from) { $('#poster').hidden = true; started = true; paused = false; ended = false; syncButtons(); run(from, false); }
+$('#bigPlay').addEventListener('click', () => play(0));
+$('#playBtn').addEventListener('click', () => { if (!started || ended) { play(0); return; } paused = !paused; syncButtons(); });
+const SPEEDS = [1, 1.5, 2];
+$('#speedBtn').addEventListener('click', (e) => { speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]; e.currentTarget.textContent = speed + '×'; });
+function seekTime(ms) { let k = 0; chapStarts.forEach((s, i) => { if (s <= ms + 1) k = i; }); play(k); }
+$('#track').addEventListener('click', (e) => { const r = e.currentTarget.getBoundingClientRect(); seekTime((e.clientX - r.left) / r.width * total); });
+$('#player').addEventListener('keydown', (e) => {
+  if (e.target.closest('button') && (e.key === ' ' || e.key === 'Enter')) return;
+  if (e.key === ' ') { e.preventDefault(); $('#playBtn').click(); }
+  if (e.key === 'ArrowRight') play(Math.min(CH.length - 1, curChap + 1));
+  if (e.key === 'ArrowLeft') play(Math.max(0, curChap - 1));
+});
+const list = $('#chapList');
+CH.forEach((c, i) => {
+  const li = h('li'), b = h('button', '', `<span class="n">${String(i + 1).padStart(2, '0')}</span><span class="t">${c.t}</span><span class="d">${c.d}</span><span class="p">${c.p}</span>`);
+  b.type = 'button';
+  b.addEventListener('click', () => { play(i); $('#player').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  li.append(b); list.append(li);
+});
+function loop() {
+  if (!total) return;
+  const v = Math.min(vt, total);
+  $('#fill').style.width = (v / total * 100) + '%';
+  $('#time').textContent = `${fmtT(v)} / ${fmtT(total)}`;
+  $('#track').setAttribute('aria-valuenow', Math.round(v / total * 100));
+  if (started && curChap >= 0) $('#nowChap').textContent = `${String(curChap + 1).padStart(2, '0')} ${CH[curChap].t}`;
+  [...list.querySelectorAll('button')].forEach((b, i) => b.classList.toggle('on', started && i === curChap));
+}
+
+/* 先快进一遍量出总时长与章节起点，然后自动从头播放 */
+async function boot() {
+  await run(0, true);
+  chapStarts.forEach((s, i) => { if (i === 0) return; const t = h('span', 'tick'); t.style.left = (s / total * 100) + '%'; $('#track').append(t); });
+  $('#posterMeta').textContent = `约 ${fmtT(total)} · ${CH.length} 章`;
+  vt = 0;
+  setInterval(loop, 100);
+  play(0);
+}
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(boot); else boot();
+})();
+</script>
+</body>
+</html>
